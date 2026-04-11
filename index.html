@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#f5efe4">
+  <title>课时统计助手</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">移动课时统计</p>
+        <h1>课时统计助手</h1>
+      </div>
+      <button id="installButton" class="ghost-button hidden" type="button">安装到手机</button>
+    </header>
+
+    <main class="page-grid">
+      <section class="panel active" data-view="today">
+        <div class="hero-card">
+          <div>
+            <p class="eyebrow">今日待考勤</p>
+            <h2 id="todayTitle">加载中...</h2>
+          </div>
+          <div class="hero-stats">
+            <div>
+              <span>应打卡</span>
+              <strong id="todayScheduledCount">0</strong>
+            </div>
+            <div>
+              <span>已完成</span>
+              <strong id="todayCompletedCount">0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="markAllPresentButton" class="primary-button" type="button">今日全部设为出勤</button>
+          <button id="resetTodayButton" class="ghost-button" type="button">清空今日记录</button>
+        </div>
+
+        <div class="list-card">
+          <div class="section-heading">
+            <div>
+              <h3>今日名单</h3>
+              <p>只显示今天应该上课的学员，向下滑动即可浏览全部。</p>
+            </div>
+          </div>
+          <div id="todayList" class="student-list"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-view="students">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">学员管理</p>
+            <h2>学员与班级</h2>
+          </div>
+          <button id="addStudentButton" class="primary-button" type="button">新增学员</button>
+        </div>
+
+        <div class="toolbar stacked-mobile">
+          <input id="studentSearchInput" class="text-input" type="search" placeholder="搜索学员或班级">
+          <button id="addClassButton" class="ghost-button" type="button">新增班级</button>
+        </div>
+
+        <div id="classSummary" class="class-grid"></div>
+        <div id="studentDirectory" class="student-list compact"></div>
+      </section>
+
+      <section class="panel" data-view="records">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">出勤查询</p>
+            <h2>记录查询</h2>
+          </div>
+        </div>
+        <div class="list-card">
+          <div class="toolbar stacked-mobile">
+            <label class="field">
+              <span>班级筛选</span>
+              <select id="recordsClassFilter" class="text-input"></select>
+            </label>
+            <label class="field">
+              <span>学员筛选</span>
+              <select id="recordsStudentFilter" class="text-input"></select>
+            </label>
+          </div>
+          <div class="toolbar stacked-mobile">
+            <label class="field">
+              <span>开始月份</span>
+              <input id="recordsStartMonthInput" class="text-input" type="month">
+            </label>
+            <label class="field">
+              <span>结束月份</span>
+              <input id="recordsEndMonthInput" class="text-input" type="month">
+            </label>
+          </div>
+        </div>
+        <div id="recordsSummaryCards" class="summary-grid"></div>
+        <div id="selectedStudentCard" class="detail-card empty-state">
+          <p>这里会显示筛选范围内的出勤明细、缺勤原因和待补录情况。</p>
+        </div>
+      </section>
+
+      <section class="panel" data-view="reports">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">月底导表</p>
+            <h2>月度统计</h2>
+          </div>
+        </div>
+
+        <div class="toolbar stacked-mobile">
+          <label class="field">
+            <span>班级筛选</span>
+            <select id="reportClassFilter" class="text-input"></select>
+          </label>
+          <label class="field">
+            <span>学员筛选</span>
+            <select id="reportStudentFilter" class="text-input"></select>
+          </label>
+        </div>
+
+        <div class="toolbar stacked-mobile">
+          <label class="field">
+            <span>开始月份</span>
+            <input id="reportStartMonthInput" class="text-input" type="month">
+          </label>
+          <label class="field">
+            <span>结束月份</span>
+            <input id="reportEndMonthInput" class="text-input" type="month">
+          </label>
+          <button id="exportMonthlyCsvButton" class="primary-button" type="button">导出月报 CSV</button>
+        </div>
+
+        <div id="monthlySummaryCards" class="summary-grid"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>班级</th>
+                <th>学员</th>
+                <th>应上</th>
+                <th>出勤</th>
+                <th>缺勤</th>
+                <th>待补录</th>
+              </tr>
+            </thead>
+            <tbody id="monthlyTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" data-view="data">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">数据安全</p>
+            <h2>导入与导出</h2>
+          </div>
+        </div>
+
+        <div class="data-grid">
+          <div class="list-card">
+            <h3>整库备份</h3>
+            <p>导出完整数据，可在换手机或重装后恢复。</p>
+            <div class="toolbar stacked-mobile">
+              <button id="exportJsonButton" class="primary-button" type="button">导出备份 JSON</button>
+              <label class="upload-button">
+                导入备份 JSON
+                <input id="importJsonInput" type="file" accept=".json,application/json">
+              </label>
+            </div>
+          </div>
+
+          <div class="list-card">
+            <h3>批量学员导入</h3>
+            <p>支持 CSV 文件，列名为：班级,姓名,上课周期</p>
+            <label class="upload-button wide">
+              导入学员 CSV
+              <input id="importCsvInput" type="file" accept=".csv,text/csv">
+            </label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="nav-button active" type="button" data-target="today">今日打卡</button>
+      <button class="nav-button" type="button" data-target="students">学员管理</button>
+      <button class="nav-button" type="button" data-target="records">记录查询</button>
+      <button class="nav-button" type="button" data-target="reports">月度统计</button>
+      <button class="nav-button" type="button" data-target="data">数据导入导出</button>
+    </nav>
+  </div>
+
+  <dialog id="studentDialog" class="modal">
+    <form id="studentForm" class="modal-card" method="dialog">
+      <div class="modal-header">
+        <h3 id="studentDialogTitle">新增学员</h3>
+        <button id="closeStudentDialogButton" class="ghost-button small" type="button">关闭</button>
+      </div>
+      <input id="studentIdInput" type="hidden">
+      <label class="field">
+        <span>学员姓名</span>
+        <input id="studentNameInput" class="text-input" type="text" required>
+      </label>
+      <label class="field">
+        <span>所在班级</span>
+        <select id="studentClassInput" class="text-input"></select>
+      </label>
+      <label class="field">
+        <span>备注</span>
+        <input id="studentNoteInput" class="text-input" type="text" placeholder="例如昵称、特殊说明">
+      </label>
+      <div class="toolbar">
+        <button class="primary-button" type="submit">保存学员</button>
+        <button id="deleteStudentButton" class="danger-button hidden" type="button">删除学员</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="classDialog" class="modal">
+    <form id="classForm" class="modal-card" method="dialog">
+      <div class="modal-header">
+        <h3 id="classDialogTitle">新增班级</h3>
+        <button id="closeClassDialogButton" class="ghost-button small" type="button">关闭</button>
+      </div>
+      <input id="classIdInput" type="hidden">
+      <label class="field">
+        <span>班级名称</span>
+        <input id="classNameInput" class="text-input" type="text" required>
+      </label>
+      <fieldset class="field">
+        <legend>上课周期</legend>
+        <div class="weekday-grid" id="weekdayCheckboxes"></div>
+      </fieldset>
+      <div class="toolbar">
+        <button class="primary-button" type="submit">保存班级</button>
+        <button id="deleteClassButton" class="danger-button hidden" type="button">删除班级</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="todayStudentTemplate">
+    <article class="student-card">
+      <button class="student-main" type="button">
+        <div class="avatar"></div>
+        <div>
+          <h3 class="student-name"></h3>
+          <p class="student-meta"></p>
+        </div>
+      </button>
+      <div class="attendance-actions">
+        <button class="status-button present" type="button">出勤</button>
+        <button class="status-button absent" type="button">未出勤</button>
+      </div>
+      <div class="absence-panel hidden">
+        <div class="reason-grid">
+          <button class="reason-chip" type="button" data-reason="外出">外出</button>
+          <button class="reason-chip" type="button" data-reason="请假">请假</button>
+          <button class="reason-chip" type="button" data-reason="生病">生病</button>
+          <button class="reason-chip" type="button" data-reason="其他">其他</button>
+        </div>
+        <input class="text-input custom-reason hidden" type="text" placeholder="填写自定义原因">
+      </div>
+    </article>
+  </template>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>

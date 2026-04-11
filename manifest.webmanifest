@@ -1,0 +1,16 @@
+{
+  "name": "课时统计助手",
+  "short_name": "课时统计",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f7f1e7",
+  "theme_color": "#f5efe4",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
