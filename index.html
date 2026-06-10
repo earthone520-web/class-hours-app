@@ -44,14 +44,17 @@
           </div>
         </div>
 
-        <div class="toolbar">
-          <label class="field inline-field">
-            <span>班级筛选</span>
-            <select id="attendanceClassFilter" class="text-input"></select>
-          </label>
-          <button id="markAllPresentButton" class="primary-button" type="button">当天全部设为出勤</button>
-          <button id="resetTodayButton" class="ghost-button" type="button">清空当天记录</button>
-        </div>
+        <details class="today-tools">
+          <summary>筛选与批量</summary>
+          <div class="toolbar">
+            <label class="field inline-field">
+              <span>班级筛选</span>
+              <select id="attendanceClassFilter" class="text-input"></select>
+            </label>
+            <button id="markAllPresentButton" class="primary-button" type="button">全部出勤</button>
+            <button id="resetTodayButton" class="ghost-button" type="button">清空</button>
+          </div>
+        </details>
 
         <div class="list-card today-list-card">
           <div class="section-heading">
@@ -200,11 +203,11 @@
     </main>
 
     <nav class="bottom-nav">
-      <button class="nav-button active" type="button" data-target="today">今日打卡</button>
-      <button class="nav-button" type="button" data-target="students">学员管理</button>
-      <button class="nav-button" type="button" data-target="records">记录查询</button>
-      <button class="nav-button" type="button" data-target="reports">月度统计</button>
-      <button class="nav-button" type="button" data-target="data">数据导入导出</button>
+      <button class="nav-button active" type="button" data-target="today">打卡</button>
+      <button class="nav-button" type="button" data-target="students">管理</button>
+      <button class="nav-button" type="button" data-target="records">查询</button>
+      <button class="nav-button" type="button" data-target="reports">统计</button>
+      <button class="nav-button" type="button" data-target="data">数据</button>
     </nav>
   </div>
 
