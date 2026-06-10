@@ -47,8 +47,9 @@ const elements = {
   navButtons: [...document.querySelectorAll(".nav-button")],
   panels: [...document.querySelectorAll(".panel")],
   todayTitle: document.querySelector("#todayTitle"),
-  todayScheduledCount: document.querySelector("#todayScheduledCount"),
+  todayPendingCount: document.querySelector("#todayPendingCount"),
   todayCompletedCount: document.querySelector("#todayCompletedCount"),
+  todayAbsentCount: document.querySelector("#todayAbsentCount"),
   attendanceDateInput: document.querySelector("#attendanceDateInput"),
   attendanceClassFilter: document.querySelector("#attendanceClassFilter"),
   todayList: document.querySelector("#todayList"),
@@ -170,10 +171,14 @@ function renderTodayView() {
   const targetDate = new Date(`${date}T00:00:00`);
   const todayStudents = getStudentsForAttendanceDate();
   const completedCount = todayStudents.filter((student) => getAttendance(student.id, date)).length;
+  const absentCount = todayStudents.filter((student) => getAttendance(student.id, date)?.status === "absent").length;
+  const presentCount = todayStudents.filter((student) => getAttendance(student.id, date)?.status === "present").length;
+  const pendingCount = Math.max(todayStudents.length - completedCount, 0);
 
-  elements.todayTitle.textContent = `${formatDate(targetDate)} · 周${weekdays[targetDate.getDay()]}`;
-  elements.todayScheduledCount.textContent = String(todayStudents.length);
-  elements.todayCompletedCount.textContent = String(completedCount);
+  elements.todayTitle.textContent = `${targetDate.getMonth() + 1}月${targetDate.getDate()}日`;
+  elements.todayPendingCount.textContent = String(pendingCount);
+  elements.todayCompletedCount.textContent = String(presentCount);
+  elements.todayAbsentCount.textContent = String(absentCount);
   elements.todayList.innerHTML = "";
 
   if (!todayStudents.length) {
@@ -581,7 +586,7 @@ function createTodayStudentCard(student) {
   const fragment = elements.todayStudentTemplate.content.cloneNode(true);
   const card = fragment.querySelector(".student-card");
   const mainButton = fragment.querySelector(".student-main");
-  const avatar = fragment.querySelector(".avatar");
+  const classBadge = fragment.querySelector(".class-badge");
   const studentName = fragment.querySelector(".student-name");
   const studentMeta = fragment.querySelector(".student-meta");
   const presentButton = fragment.querySelector(".status-button.present");
@@ -591,10 +596,18 @@ function createTodayStudentCard(student) {
   const date = attendanceDate();
   const record = getAttendance(student.id, date);
 
-  avatar.textContent = getInitial(student.name);
-  avatar.style.background = avatarColor(student.name);
+  card.classList.add("attendance-card");
+  if (record?.status === "present") card.classList.add("state-present");
+  else if (record?.status === "absent") card.classList.add("state-absent");
+  else card.classList.add("state-pending");
+
+  classBadge.textContent = student.className;
   studentName.textContent = student.name;
-  studentMeta.textContent = `${student.className} · ${date}`;
+  studentMeta.textContent = record?.status === "present"
+    ? "出勤"
+    : record?.status === "absent"
+      ? `未出勤: ${record.reason || "未填写"}`
+      : "待打卡";
 
   mainButton.addEventListener("click", () => {
     const classId = getClassById(student.classId)?.id || "";

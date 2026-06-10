@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#2563eb">
+  <meta name="theme-color" content="#5b55e7">
   <title>课时统计助手</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css">
@@ -20,28 +20,31 @@
 
     <main class="page-grid">
       <section class="panel active" data-view="today">
-        <div class="hero-card">
-          <div>
-            <p class="eyebrow">今日待考勤</p>
-            <h2 id="todayTitle">加载中...</h2>
+        <div class="hero-card today-hero">
+          <div class="today-heading">
+            <h2>今日考勤</h2>
+            <label class="today-date-picker">
+              <span id="todayTitle">加载中...</span>
+              <input id="attendanceDateInput" type="date" aria-label="考勤日期">
+            </label>
           </div>
           <div class="hero-stats">
-            <div>
-              <span>应打卡</span>
-              <strong id="todayScheduledCount">0</strong>
+            <div class="stat-pill waiting">
+              <span>待考勤:</span>
+              <strong id="todayPendingCount">0</strong>
             </div>
-            <div>
-              <span>已完成</span>
+            <div class="stat-pill present">
+              <span>出勤:</span>
               <strong id="todayCompletedCount">0</strong>
+            </div>
+            <div class="stat-pill absent">
+              <span>未出勤:</span>
+              <strong id="todayAbsentCount">0</strong>
             </div>
           </div>
         </div>
 
         <div class="toolbar">
-          <label class="field inline-field">
-            <span>考勤日期</span>
-            <input id="attendanceDateInput" class="text-input" type="date">
-          </label>
           <label class="field inline-field">
             <span>班级筛选</span>
             <select id="attendanceClassFilter" class="text-input"></select>
@@ -50,7 +53,7 @@
           <button id="resetTodayButton" class="ghost-button" type="button">清空当天记录</button>
         </div>
 
-        <div class="list-card">
+        <div class="list-card today-list-card">
           <div class="section-heading">
             <div>
               <h3>当日名单</h3>
@@ -266,8 +269,8 @@
   <template id="todayStudentTemplate">
     <article class="student-card">
       <button class="student-main" type="button">
-        <div class="avatar"></div>
         <div>
+          <span class="class-badge"></span>
           <h3 class="student-name"></h3>
           <p class="student-meta"></p>
         </div>
