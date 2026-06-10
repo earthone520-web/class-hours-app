@@ -198,15 +198,12 @@ function renderStudentsView() {
     .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"))
     .map((classItem) => {
       const studentCount = state.students.filter((student) => student.classId === classItem.id && student.active !== false).length;
-      const nextDate = getNextClassDate(classItem);
       const scheduleMonth = getClassCalendarMonth(classItem.id);
       return `
         <article class="class-card">
           <div class="class-card-header">
             <div>
               <h3>${escapeHtml(classItem.name)}</h3>
-              <p class="student-meta">${formatClassDates(classItem.dates)}</p>
-              <p class="student-meta">下一次：${escapeHtml(nextDate || "未排课")}</p>
             </div>
             <span class="chip">${studentCount} 人</span>
           </div>
@@ -266,7 +263,7 @@ function renderStudentsView() {
     card.className = "student-card";
     card.innerHTML = `
       <button class="student-main" type="button" data-open-records="${student.id}">
-        <div class="avatar" style="background:${avatarColor(student.name)}">${getInitial(student.name)}</div>
+        <div class="avatar" style="${avatarStyleForStudent(student)}">${getInitial(student.name)}</div>
         <div>
           <h3>${escapeHtml(student.name)}</h3>
           <p class="student-meta">${escapeHtml(getClassById(student.classId)?.name || "未分班")} · ${escapeHtml(student.note || "点击查看记录")}</p>
@@ -312,7 +309,7 @@ function renderRecordsView() {
   const header = selectedStudent
     ? `
       <div class="student-main">
-        <div class="avatar" style="background:${avatarColor(selectedStudent.name)}">${getInitial(selectedStudent.name)}</div>
+        <div class="avatar" style="${avatarStyleForStudent(selectedStudent)}">${getInitial(selectedStudent.name)}</div>
         <div>
           <h3>${escapeHtml(selectedStudent.name)}</h3>
           <p class="student-meta">${escapeHtml(getClassById(selectedStudent.classId)?.name || "未分班")} · ${escapeHtml(selectedStudent.note || "无备注")}</p>
@@ -548,7 +545,26 @@ function bindRecordsInteractions() {
     });
   });
 
+  document.querySelectorAll("[data-sheet-lesson]").forEach((input) => {
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.addEventListener("input", () => {
+      const studentId = input.dataset.sheetLesson;
+      const date = input.dataset.date;
+      const record = getAttendance(studentId, date);
+      if (record?.status === "present") {
+        const value = input.value.trim();
+        if (value) record.lessonNumber = value;
+        else delete record.lessonNumber;
+        record.updatedAt = new Date().toISOString();
+        persistState();
+        renderTodayView();
+        renderReportsView();
+      }
+    });
+  });
+
   document.querySelectorAll("[data-sheet-reason]").forEach((input) => {
+    input.addEventListener("click", (event) => event.stopPropagation());
     input.addEventListener("input", () => {
       const studentId = input.dataset.sheetReason;
       const date = input.dataset.date;
@@ -1273,7 +1289,6 @@ function buildStudentSpreadsheetTable(student, startDate, endDate) {
           <tr>
             <th>日期</th>
             <th>星期</th>
-            <th>级别</th>
             <th class="student-column">${escapeHtml(student.name)}</th>
           </tr>
         </thead>
@@ -1282,19 +1297,20 @@ function buildStudentSpreadsheetTable(student, startDate, endDate) {
             const record = getAttendance(student.id, date);
             const isAbsent = record?.status === "absent";
             const isPresent = record?.status === "present";
-            const value = isPresent ? String(presentNumbers.get(date) || "") : isAbsent ? record.reason || "请假" : "";
+            const value = isPresent ? String(record?.lessonNumber || presentNumbers.get(date) || "") : isAbsent ? record.reason || "请假" : "";
             return `
               <tr>
                 <td class="date-col">${escapeHtml(formatShortDate(date))}</td>
                 <td>${escapeHtml(shortWeekday(date))}</td>
-                <td>${escapeHtml(classItem?.name || "未分班")}</td>
-                <td class="student-sheet-cell ${isAbsent ? "absent" : isPresent ? "present" : "pending"}">
-                  <button class="sheet-status-button" type="button" data-sheet-status="${student.id}" data-date="${date}" title="点击切换：待补录 / 出勤 / 缺勤">${escapeHtml(value || "待补录")}</button>
+                <td class="student-sheet-cell ${isAbsent ? "absent" : isPresent ? "present" : "pending"}" data-sheet-status="${student.id}" data-date="${date}">
+                  ${isPresent
+                    ? `<input class="sheet-lesson-input" type="text" inputmode="numeric" value="${escapeAttribute(value)}" data-sheet-lesson="${student.id}" data-date="${date}" aria-label="课次数字">`
+                    : `<span class="sheet-status-label">${escapeHtml(value || "待补录")}</span>`}
                   ${isAbsent ? `<input class="sheet-reason-input" type="text" value="${escapeAttribute(record.reason || "请假")}" data-sheet-reason="${student.id}" data-date="${date}" aria-label="缺勤原因">` : ""}
                 </td>
               </tr>
             `;
-          }).join("") : `<tr><td colspan="4">当前范围内没有该学员的课日或考勤记录。</td></tr>`}
+          }).join("") : `<tr><td colspan="3">当前范围内没有该学员的课日或考勤记录。</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1515,10 +1531,18 @@ function getInitial(name) {
   return name.trim().slice(0, 1).toUpperCase();
 }
 
-function avatarColor(name) {
-  const palette = ["#d47643", "#5183c4", "#4e9a7a", "#bc5b73", "#8e68c7", "#bc8642"];
-  const index = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % palette.length;
-  return palette[index];
+function avatarStyleForStudent(student) {
+  return `background:${avatarColorForClass(student.classId)}; color:#334155;`;
+}
+
+function avatarColorForClass(classId) {
+  const palette = ["#f6dfa2", "#b8e6c8", "#b9d7ff", "#f7c9a6", "#d5c8ff", "#f6b9be"];
+  const classIndex = state.classes
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"))
+    .findIndex((classItem) => classItem.id === classId);
+  const index = classIndex >= 0 ? classIndex : 0;
+  return palette[index % palette.length];
 }
 
 function csvEscape(value) {

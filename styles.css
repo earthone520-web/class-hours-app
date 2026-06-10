@@ -725,17 +725,32 @@ tbody tr:hover {
   background: #e8a8a8;
 }
 
-.sheet-status-button {
+.sheet-status-label,
+.sheet-lesson-input {
+  display: grid;
+  place-items: center;
   width: 100%;
   min-height: 44px;
   padding: 8px 10px;
   background: transparent;
+  border: 0;
   color: #111827;
   font-size: 18px;
   font-weight: 800;
+  text-align: center;
 }
 
-.student-sheet-cell.pending .sheet-status-button {
+.sheet-lesson-input {
+  cursor: text;
+}
+
+.sheet-lesson-input:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.35);
+  outline-offset: -2px;
+  background: rgba(219, 234, 254, 0.45);
+}
+
+.student-sheet-cell.pending .sheet-status-label {
   color: var(--muted);
   font-size: 14px;
   font-weight: 650;
