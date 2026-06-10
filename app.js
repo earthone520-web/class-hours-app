@@ -1,4 +1,7 @@
 const STORAGE_KEY = "lesson-tracker-app-v1";
+const STABLE_BACKUP_DB = "lesson-tracker-stable-storage";
+const STABLE_BACKUP_STORE = "snapshots";
+const STABLE_BACKUP_ID = "latest";
 const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
 const defaultAbsenceReasons = ["请假", "生病", "外出", "其他"];
 
@@ -107,9 +110,11 @@ init();
 function init() {
   registerServiceWorker();
   setupInstallPrompt();
+  setupDurableStorage();
   bindEvents();
   setDefaultRangeInputs();
   renderAll();
+  restoreStableBackupIfNeeded();
 }
 
 function bindEvents() {
@@ -156,6 +161,10 @@ function bindEvents() {
   elements.closeStudentDialogButton.addEventListener("click", () => elements.studentDialog.close());
   elements.closeClassDialogButton.addEventListener("click", () => elements.classDialog.close());
   elements.installButton.addEventListener("click", installApp);
+  window.addEventListener("pagehide", persistState);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistState();
+  });
 }
 
 function renderAll() {
@@ -893,11 +902,18 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(initialData);
     const parsed = JSON.parse(raw);
-    if (!parsed.classes || !parsed.students || !parsed.attendance) throw new Error("invalid");
+    if (!isValidStateData(parsed)) throw new Error("invalid");
     return migrateState(parsed);
   } catch {
     return structuredClone(initialData);
   }
+}
+
+function isValidStateData(data) {
+  return Boolean(data)
+    && Array.isArray(data.classes)
+    && Array.isArray(data.students)
+    && Array.isArray(data.attendance);
 }
 
 function migrateState(data) {
@@ -922,12 +938,100 @@ function normalizeClassDates(classItem) {
 }
 
 function persistState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const snapshot = createStateSnapshot();
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // IndexedDB backup below is the fallback when localStorage is temporarily unavailable.
+  }
+  saveStableBackup(snapshot);
 }
 
 function persistAndRender() {
   persistState();
   renderAll();
+}
+
+function createStateSnapshot() {
+  return JSON.parse(JSON.stringify(state));
+}
+
+function hasValidLocalState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? isValidStateData(JSON.parse(raw)) : false;
+  } catch {
+    return false;
+  }
+}
+
+async function restoreStableBackupIfNeeded() {
+  if (hasValidLocalState()) {
+    saveStableBackup();
+    return;
+  }
+
+  const backup = await readStableBackup();
+  if (!isValidStateData(backup)) {
+    saveStableBackup();
+    return;
+  }
+
+  const migrated = migrateState(backup);
+  state.classes = migrated.classes;
+  state.students = migrated.students;
+  state.attendance = migrated.attendance;
+  selectedStudentId = null;
+  persistState();
+  renderAll();
+}
+
+function saveStableBackup(snapshot = createStateSnapshot()) {
+  openStableBackupDb()
+    .then((db) => {
+      const tx = db.transaction(STABLE_BACKUP_STORE, "readwrite");
+      tx.objectStore(STABLE_BACKUP_STORE).put({
+        id: STABLE_BACKUP_ID,
+        data: snapshot,
+        savedAt: new Date().toISOString(),
+      });
+      return waitForTransaction(tx);
+    })
+    .catch(() => {});
+}
+
+function readStableBackup() {
+  return openStableBackupDb()
+    .then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(STABLE_BACKUP_STORE, "readonly");
+      const request = tx.objectStore(STABLE_BACKUP_STORE).get(STABLE_BACKUP_ID);
+      request.onsuccess = () => resolve(request.result?.data || null);
+      request.onerror = () => reject(request.error);
+    }))
+    .catch(() => null);
+}
+
+function openStableBackupDb() {
+  if (!("indexedDB" in window)) return Promise.reject(new Error("IndexedDB unavailable"));
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(STABLE_BACKUP_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STABLE_BACKUP_STORE)) {
+        db.createObjectStore(STABLE_BACKUP_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function waitForTransaction(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
 
 function upsertAttendance(studentId, date, status, reason) {
@@ -994,7 +1098,7 @@ function importBackupJson(event) {
   if (!file) return;
   file.text().then((text) => {
     const parsed = JSON.parse(text);
-    if (!parsed.classes || !parsed.students || !parsed.attendance) throw new Error("格式不正确");
+    if (!isValidStateData(parsed)) throw new Error("格式不正确");
     const migrated = migrateState(parsed);
     state.classes = migrated.classes;
     state.students = migrated.students;
@@ -1087,6 +1191,12 @@ function setupInstallPrompt() {
   });
 }
 
+function setupDurableStorage() {
+  if (navigator.storage?.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
+}
+
 async function installApp() {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
@@ -1097,7 +1207,9 @@ async function installApp() {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js")
+      .then((registration) => registration.update?.())
+      .catch(() => {});
   }
 }
 
