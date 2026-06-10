@@ -1,4 +1,4 @@
-const CACHE_NAME = "lesson-tracker-cache-v2";
+const CACHE_NAME = "lesson-tracker-cache-v3";
 const APP_FILES = [
   "./",
   "./index.html",

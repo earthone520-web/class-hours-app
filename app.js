@@ -38,6 +38,9 @@ const state = loadState();
 let selectedStudentId = null;
 let deferredPrompt = null;
 let editingClassDates = [];
+let editingClassCalendarMonth = todayIso().slice(0, 7);
+const classCalendarMonths = {};
+let recordsViewMode = "calendar";
 
 const elements = {
   installButton: document.querySelector("#installButton"),
@@ -88,6 +91,10 @@ const elements = {
   classNameInput: document.querySelector("#classNameInput"),
   classDateInput: document.querySelector("#classDateInput"),
   addClassDateButton: document.querySelector("#addClassDateButton"),
+  classCalendarPrevButton: document.querySelector("#classCalendarPrevButton"),
+  classCalendarNextButton: document.querySelector("#classCalendarNextButton"),
+  classCalendarMonthLabel: document.querySelector("#classCalendarMonthLabel"),
+  classScheduleCalendar: document.querySelector("#classScheduleCalendar"),
   classDatesList: document.querySelector("#classDatesList"),
   deleteClassButton: document.querySelector("#deleteClassButton"),
   closeClassDialogButton: document.querySelector("#closeClassDialogButton"),
@@ -139,6 +146,8 @@ function bindEvents() {
   elements.addStudentButton.addEventListener("click", () => openStudentDialog());
   elements.addClassButton.addEventListener("click", () => openClassDialog());
   elements.addClassDateButton.addEventListener("click", addEditingClassDate);
+  elements.classCalendarPrevButton.addEventListener("click", () => shiftEditingClassMonth(-1));
+  elements.classCalendarNextButton.addEventListener("click", () => shiftEditingClassMonth(1));
   elements.studentForm.addEventListener("submit", saveStudent);
   elements.classForm.addEventListener("submit", saveClass);
   elements.deleteStudentButton.addEventListener("click", deleteStudent);
@@ -185,6 +194,7 @@ function renderStudentsView() {
     .map((classItem) => {
       const studentCount = state.students.filter((student) => student.classId === classItem.id && student.active !== false).length;
       const nextDate = getNextClassDate(classItem);
+      const scheduleMonth = getClassCalendarMonth(classItem.id);
       return `
         <article class="class-card">
           <div class="class-card-header">
@@ -194,6 +204,14 @@ function renderStudentsView() {
               <p class="student-meta">下一次：${escapeHtml(nextDate || "未排课")}</p>
             </div>
             <span class="chip">${studentCount} 人</span>
+          </div>
+          <div class="class-quick-actions">
+            <div class="calendar-toolbar compact-toolbar">
+              <button class="icon-button" type="button" data-class-month-prev="${classItem.id}" aria-label="上个月">‹</button>
+              <strong>${escapeHtml(formatMonthLabel(scheduleMonth))}</strong>
+              <button class="icon-button" type="button" data-class-month-next="${classItem.id}" aria-label="下个月">›</button>
+            </div>
+            ${buildClassScheduleCalendar(classItem, scheduleMonth, "card")}
           </div>
           <div class="toolbar">
             <button class="ghost-button small" type="button" data-edit-class="${classItem.id}">编辑班级</button>
@@ -206,6 +224,23 @@ function renderStudentsView() {
   elements.classSummary.innerHTML = classCards;
   [...elements.classSummary.querySelectorAll("[data-edit-class]")].forEach((button) => {
     button.addEventListener("click", () => openClassDialog(button.dataset.editClass));
+  });
+  [...elements.classSummary.querySelectorAll("[data-class-month-prev]")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.classMonthPrev;
+      classCalendarMonths[id] = shiftMonth(getClassCalendarMonth(id), -1);
+      renderStudentsView();
+    });
+  });
+  [...elements.classSummary.querySelectorAll("[data-class-month-next]")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.classMonthNext;
+      classCalendarMonths[id] = shiftMonth(getClassCalendarMonth(id), 1);
+      renderStudentsView();
+    });
+  });
+  [...elements.classSummary.querySelectorAll("[data-toggle-class-date]")].forEach((button) => {
+    button.addEventListener("click", () => toggleClassDate(button.dataset.toggleClassDate, button.dataset.date));
   });
 
   const filteredStudents = state.students
@@ -288,6 +323,7 @@ function renderRecordsView() {
 
   const pendingDates = summary.pendingDates.slice(0, 12);
   const parentMessage = selectedStudent ? buildParentMessage(selectedStudent, recordsData.rows[0], scope) : "";
+  const detailRows = buildAttendanceDetailRows(recordsData.rows, scope.startDate, scope.endDate);
   const pendingBlock = pendingDates.length
     ? `
       <div class="list-card">
@@ -308,17 +344,65 @@ function renderRecordsView() {
     : "";
   const calendarBlock = selectedStudent
     ? `
-      <div class="list-card">
+      <div class="view-pane ${recordsViewMode === "calendar" ? "active" : ""}" data-record-pane="calendar">
         <div class="section-heading">
           <div>
             <h3>当月日历</h3>
-            <p class="filter-caption">绿色为出勤，红色为缺勤；缺勤日期会直接显示原因。</p>
+            <p class="filter-caption">蓝色边框代表该班上课日；绿色为出勤，红色为缺勤并显示原因。</p>
           </div>
         </div>
         ${buildStudentMonthCalendar(selectedStudent.id, elements.recordsStartMonthInput.value)}
       </div>
     `
-    : "";
+    : `
+      <div class="view-pane ${recordsViewMode === "calendar" ? "active" : ""}" data-record-pane="calendar">
+        <div class="empty-state spacious"><p>选择一个学员后，会显示该学员的出勤日历。</p></div>
+      </div>
+    `;
+  const tableBlock = selectedStudent
+    ? `
+    <div class="view-pane ${recordsViewMode === "table" ? "active" : ""}" data-record-pane="table">
+      ${buildStudentSpreadsheetTable(selectedStudent, scope.startDate, scope.endDate)}
+    </div>
+  `
+    : `
+    <div class="view-pane ${recordsViewMode === "table" ? "active" : ""}" data-record-pane="table">
+      <div class="table-wrap detail-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>班级</th>
+              <th>学员</th>
+              <th>课日</th>
+              <th>状态</th>
+              <th>缺勤原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${detailRows.length ? detailRows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.date)}</td>
+                <td>${escapeHtml(row.className)}</td>
+                <td>${escapeHtml(row.studentName)}</td>
+                <td><span class="record-badge ${row.scheduled ? "scheduled" : "neutral"}">${row.scheduled ? "有课" : "补录"}</span></td>
+                <td>
+                  <select class="table-status-select" data-attendance-status="${row.studentId}" data-date="${row.date}">
+                    <option value="" ${!row.status ? "selected" : ""}>待补录</option>
+                    <option value="present" ${row.status === "present" ? "selected" : ""}>出勤</option>
+                    <option value="absent" ${row.status === "absent" ? "selected" : ""}>缺勤</option>
+                  </select>
+                </td>
+                <td>
+                  <input class="table-reason-input" type="text" value="${escapeAttribute(row.reason || "")}" placeholder="缺勤原因" data-attendance-reason="${row.studentId}" data-date="${row.date}" ${row.status === "present" ? "disabled" : ""}>
+                </td>
+              </tr>
+            `).join("") : `<tr><td colspan="6">当前范围内没有可核对的明细。</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
   const parentMessageBlock = selectedStudent && recordsData.rows[0]
     ? `
       <div class="message-card">
@@ -329,7 +413,7 @@ function renderRecordsView() {
           </div>
           <button id="copyParentMessageButton" class="primary-button small" type="button">复制文案</button>
         </div>
-        <div id="parentMessageText" class="message-text">${escapeHtml(parentMessage)}</div>
+        <textarea id="parentMessageText" class="message-text editable-message" rows="9">${escapeHtml(parentMessage)}</textarea>
       </div>
     `
     : "";
@@ -338,10 +422,17 @@ function renderRecordsView() {
   elements.selectedStudentCard.innerHTML = `
     ${header}
     <p class="filter-caption">已按 ${escapeHtml(recordsData.filterLabel)} 查询。</p>
-    ${calendarBlock}
+    <div class="segmented-control" role="tablist" aria-label="记录显示方式">
+      <button class="${recordsViewMode === "calendar" ? "active" : ""}" type="button" data-record-view="calendar">日历视图</button>
+      <button class="${recordsViewMode === "table" ? "active" : ""}" type="button" data-record-view="table">表格明细</button>
+    </div>
+    <div class="record-view-shell">
+      ${calendarBlock}
+      ${tableBlock}
+    </div>
     ${parentMessageBlock}
     ${pendingBlock}
-    <div>
+    <div class="view-pane ${recordsViewMode === "table" ? "hidden" : ""}">
       <h3>出勤明细</h3>
       <div class="record-list">
         ${recordsData.recordItems.length ? recordsData.recordItems.map((record) => `
@@ -360,13 +451,15 @@ function renderRecordsView() {
   const copyButton = document.querySelector("#copyParentMessageButton");
   if (copyButton) {
     copyButton.addEventListener("click", async () => {
-      const ok = await copyText(parentMessage);
+      const messageInput = document.querySelector("#parentMessageText");
+      const ok = await copyText(messageInput?.value || parentMessage);
       copyButton.textContent = ok ? "已复制" : "复制失败";
       setTimeout(() => {
         copyButton.textContent = "复制文案";
       }, 1500);
     });
   }
+  bindRecordsInteractions();
 }
 
 function renderReportsView() {
@@ -403,6 +496,85 @@ function renderReportsView() {
       <td>${row.pending}</td>
     </tr>
   `).join("");
+}
+
+function bindRecordsInteractions() {
+  document.querySelectorAll("[data-record-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      recordsViewMode = button.dataset.recordView;
+      renderRecordsView();
+    });
+  });
+
+  document.querySelectorAll("[data-calendar-attendance]").forEach((button) => {
+    button.addEventListener("click", () => {
+      cycleAttendance(button.dataset.calendarAttendance, button.dataset.date);
+      persistAndRender();
+    });
+  });
+
+  document.querySelectorAll("[data-attendance-status]").forEach((select) => {
+    select.addEventListener("change", () => {
+      setAttendanceFromTable(select.dataset.attendanceStatus, select.dataset.date, select.value);
+    });
+  });
+
+  document.querySelectorAll("[data-attendance-reason]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const studentId = input.dataset.attendanceReason;
+      const date = input.dataset.date;
+      const record = getAttendance(studentId, date);
+      if (!record && input.value.trim()) {
+        upsertAttendance(studentId, date, "absent", input.value.trim());
+      } else if (record?.status === "absent") {
+        record.reason = input.value.trim();
+        record.updatedAt = new Date().toISOString();
+      }
+      persistState();
+      renderTodayView();
+      renderReportsView();
+    });
+  });
+
+  document.querySelectorAll("[data-sheet-status]").forEach((button) => {
+    button.addEventListener("click", () => {
+      cycleAttendance(button.dataset.sheetStatus, button.dataset.date);
+      persistAndRender();
+    });
+  });
+
+  document.querySelectorAll("[data-sheet-reason]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const studentId = input.dataset.sheetReason;
+      const date = input.dataset.date;
+      upsertAttendance(studentId, date, "absent", input.value.trim() || "请假");
+      persistState();
+      renderTodayView();
+      renderReportsView();
+    });
+  });
+}
+
+function setAttendanceFromTable(studentId, date, status) {
+  if (!status) {
+    state.attendance = state.attendance.filter((record) => !(record.studentId === studentId && record.date === date));
+  } else {
+    const existing = getAttendance(studentId, date);
+    const reason = status === "absent" ? existing?.reason || "请假" : "";
+    upsertAttendance(studentId, date, status, reason);
+  }
+  persistAndRender();
+}
+
+function cycleAttendance(studentId, date) {
+  const record = getAttendance(studentId, date);
+  if (!record) {
+    upsertAttendance(studentId, date, "present", "");
+  } else if (record.status === "present") {
+    upsertAttendance(studentId, date, "absent", "请假");
+  } else {
+    state.attendance = state.attendance.filter((item) => !(item.studentId === studentId && item.date === date));
+  }
 }
 
 function createTodayStudentCard(student) {
@@ -547,15 +719,17 @@ function openClassDialog(classId = "") {
     elements.classNameInput.value = classItem.name;
     elements.deleteClassButton.classList.remove("hidden");
     editingClassDates = [...(classItem.dates || [])].sort();
+    editingClassCalendarMonth = getClassCalendarMonth(classItem.id);
   } else {
     elements.classDialogTitle.textContent = "新增班级";
     elements.classForm.reset();
     elements.classIdInput.value = "";
     elements.deleteClassButton.classList.add("hidden");
     editingClassDates = [];
+    editingClassCalendarMonth = todayIso().slice(0, 7);
   }
   elements.classDateInput.value = "";
-  renderEditingClassDates();
+  renderEditingClassScheduleTools();
   elements.classDialog.showModal();
 }
 
@@ -582,8 +756,29 @@ function addEditingClassDate() {
   if (!value || editingClassDates.includes(value)) return;
   editingClassDates.push(value);
   editingClassDates.sort();
+  editingClassCalendarMonth = value.slice(0, 7);
   elements.classDateInput.value = "";
+  renderEditingClassScheduleTools();
+}
+
+function renderEditingClassScheduleTools() {
+  renderEditingClassCalendar();
   renderEditingClassDates();
+}
+
+function renderEditingClassCalendar() {
+  const pseudoClass = {
+    id: elements.classIdInput.value || "draft-class",
+    name: elements.classNameInput.value.trim() || "新班级",
+    dates: editingClassDates,
+  };
+  elements.classCalendarMonthLabel.textContent = formatMonthLabel(editingClassCalendarMonth);
+  elements.classScheduleCalendar.innerHTML = buildClassScheduleCalendar(pseudoClass, editingClassCalendarMonth, "dialog", false);
+  elements.classScheduleCalendar.querySelectorAll("[data-dialog-date]").forEach((button) => {
+    button.addEventListener("click", () => {
+      toggleEditingClassDate(button.dataset.dialogDate);
+    });
+  });
 }
 
 function renderEditingClassDates() {
@@ -599,9 +794,24 @@ function renderEditingClassDates() {
   elements.classDatesList.querySelectorAll("[data-remove-class-date]").forEach((button) => {
     button.addEventListener("click", () => {
       editingClassDates = editingClassDates.filter((date) => date !== button.dataset.removeClassDate);
-      renderEditingClassDates();
+      renderEditingClassScheduleTools();
     });
   });
+}
+
+function toggleEditingClassDate(date) {
+  if (editingClassDates.includes(date)) {
+    editingClassDates = editingClassDates.filter((item) => item !== date);
+  } else {
+    editingClassDates.push(date);
+    editingClassDates.sort();
+  }
+  renderEditingClassScheduleTools();
+}
+
+function shiftEditingClassMonth(delta) {
+  editingClassCalendarMonth = shiftMonth(editingClassCalendarMonth, delta);
+  renderEditingClassCalendar();
 }
 
 function deleteClass() {
@@ -984,6 +1194,89 @@ function buildReportRows({ classId = "", studentId = "", startDate, endDate }) {
     .sort((a, b) => a.className.localeCompare(b.className, "zh-Hans-CN") || a.studentName.localeCompare(b.studentName, "zh-Hans-CN"));
 }
 
+function buildAttendanceDetailRows(rows, startDate, endDate) {
+  const output = [];
+  rows.forEach((row) => {
+    const student = state.students.find((item) => item.id === row.studentId);
+    const classItem = getClassById(student?.classId);
+    const scheduledDates = getScheduledDatesBetween(startDate, endDate, classItem?.dates || []);
+    const scheduledSet = new Set(scheduledDates);
+    const recordedDates = state.attendance
+      .filter((record) => record.studentId === row.studentId && record.date >= startDate && record.date <= endDate)
+      .map((record) => record.date);
+    [...new Set([...scheduledDates, ...recordedDates])].sort().forEach((date) => {
+      const record = getAttendance(row.studentId, date);
+      output.push({
+        date,
+        className: row.className,
+        studentName: row.studentName,
+        studentId: row.studentId,
+        scheduled: scheduledSet.has(date),
+        status: record?.status || "",
+        reason: record?.reason || "",
+      });
+    });
+  });
+  return output.sort((a, b) => a.date.localeCompare(b.date) || a.className.localeCompare(b.className, "zh-Hans-CN") || a.studentName.localeCompare(b.studentName, "zh-Hans-CN"));
+}
+
+function buildStudentSpreadsheetTable(student, startDate, endDate) {
+  const classItem = getClassById(student.classId);
+  const scheduledDates = getScheduledDatesBetween(startDate, endDate, classItem?.dates || []);
+  const recordedDates = state.attendance
+    .filter((record) => record.studentId === student.id && record.date >= startDate && record.date <= endDate)
+    .map((record) => record.date);
+  const dates = [...new Set([...scheduledDates, ...recordedDates])].sort();
+  const presentNumbers = buildPresentLessonNumbers(student.id);
+
+  return `
+    <div class="table-wrap sheet-table-wrap">
+      <table class="sheet-table">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>星期</th>
+            <th>级别</th>
+            <th class="student-column">${escapeHtml(student.name)}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dates.length ? dates.map((date) => {
+            const record = getAttendance(student.id, date);
+            const isAbsent = record?.status === "absent";
+            const isPresent = record?.status === "present";
+            const value = isPresent ? String(presentNumbers.get(date) || "") : isAbsent ? record.reason || "请假" : "";
+            return `
+              <tr>
+                <td class="date-col">${escapeHtml(formatShortDate(date))}</td>
+                <td>${escapeHtml(shortWeekday(date))}</td>
+                <td>${escapeHtml(classItem?.name || "未分班")}</td>
+                <td class="student-sheet-cell ${isAbsent ? "absent" : isPresent ? "present" : "pending"}">
+                  <button class="sheet-status-button" type="button" data-sheet-status="${student.id}" data-date="${date}" title="点击切换：待补录 / 出勤 / 缺勤">${escapeHtml(value || "待补录")}</button>
+                  ${isAbsent ? `<input class="sheet-reason-input" type="text" value="${escapeAttribute(record.reason || "请假")}" data-sheet-reason="${student.id}" data-date="${date}" aria-label="缺勤原因">` : ""}
+                </td>
+              </tr>
+            `;
+          }).join("") : `<tr><td colspan="4">当前范围内没有该学员的课日或考勤记录。</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function buildPresentLessonNumbers(studentId) {
+  let count = 0;
+  const numbers = new Map();
+  state.attendance
+    .filter((record) => record.studentId === studentId && record.status === "present")
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .forEach((record) => {
+      count += 1;
+      numbers.set(record.date, count);
+    });
+  return numbers;
+}
+
 function buildParentMessage(student, row, scope) {
   const absenceSummary = summarizeAbsenceReasons(student.id, scope.startDate, scope.endDate);
   const reasonText = absenceSummary.length
@@ -1036,10 +1329,11 @@ function buildStudentMonthCalendar(studentId, monthValue) {
           ? "有课"
           : "";
     return `
-      <div class="calendar-day ${statusClass}">
+      <button class="calendar-day ${statusClass} ${isScheduled ? "class-day" : ""}" type="button" data-calendar-attendance="${studentId}" data-date="${date}">
         <strong>${day}</strong>
+        ${isScheduled ? `<em>课</em>` : ""}
         ${label ? `<span>${escapeHtml(label)}</span>` : ""}
-      </div>
+      </button>
     `;
   });
 
@@ -1055,6 +1349,52 @@ function getScheduledDatesBetween(startDate, endDate, schedule) {
   return [...new Set(schedule)]
     .filter((date) => date >= startDate && date <= endDate)
     .sort();
+}
+
+function buildClassScheduleCalendar(classItem, monthValue, mode = "card", wrap = true) {
+  const [year, month] = monthValue.split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dateSet = new Set(classItem.dates || []);
+  const students = state.students.filter((student) => student.classId === classItem.id && student.active !== false);
+  const blanks = Array.from({ length: first.getDay() }, () => `<div class="calendar-day blank"></div>`);
+  const days = Array.from({ length: daysInMonth }, (_, index) => {
+    const day = index + 1;
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const isActive = dateSet.has(date);
+    const presentCount = students.filter((student) => getAttendance(student.id, date)?.status === "present").length;
+    const absentCount = students.filter((student) => getAttendance(student.id, date)?.status === "absent").length;
+    const attr = mode === "dialog"
+      ? `data-dialog-date="${date}"`
+      : `data-toggle-class-date="${classItem.id}" data-date="${date}"`;
+    return `
+      <button class="calendar-day schedule-day ${isActive ? "selected" : ""}" type="button" ${attr}>
+        <strong>${day}</strong>
+        ${isActive ? `<span>有课</span>` : ""}
+        ${(presentCount || absentCount) ? `<small>${presentCount}到 / ${absentCount}缺</small>` : ""}
+      </button>
+    `;
+  });
+  const content = `
+    ${["日", "一", "二", "三", "四", "五", "六"].map((day) => `<div class="calendar-weekday">周${day}</div>`).join("")}
+    ${[...blanks, ...days].join("")}
+  `;
+  return wrap ? `<div class="calendar-grid class-schedule-calendar">${content}</div>` : content;
+}
+
+function toggleClassDate(classId, date) {
+  const classItem = getClassById(classId);
+  if (!classItem) return;
+  const dates = new Set(classItem.dates || []);
+  if (dates.has(date)) dates.delete(date);
+  else dates.add(date);
+  classItem.dates = [...dates].sort();
+  persistAndRender();
+}
+
+function getClassCalendarMonth(classId) {
+  if (!classCalendarMonths[classId]) classCalendarMonths[classId] = todayIso().slice(0, 7);
+  return classCalendarMonths[classId];
 }
 
 function getMonthEndDate(monthValue) {
@@ -1094,6 +1434,12 @@ function getNextClassDate(classItem) {
   return (classItem.dates || []).find((date) => date >= today) || "";
 }
 
+function shiftMonth(monthValue, delta) {
+  const [year, month] = monthValue.split("-").map(Number);
+  const date = new Date(year, month - 1 + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -1111,6 +1457,16 @@ function toIsoDate(date) {
 
 function formatDate(date) {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function formatShortDate(dateValue) {
+  const [, month, day] = dateValue.split("-").map(Number);
+  return `${month}.${day}`;
+}
+
+function shortWeekday(dateValue) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  return weekdays[date.getDay()];
 }
 
 function formatMonthLabel(monthValue) {
@@ -1152,4 +1508,8 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#96;");
 }
