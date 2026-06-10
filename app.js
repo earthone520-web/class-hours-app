@@ -606,7 +606,7 @@ function createTodayStudentCard(student) {
   studentMeta.textContent = record?.status === "present"
     ? "出勤"
     : record?.status === "absent"
-      ? `未出勤: ${record.reason || "未填写"}`
+      ? record.reason ? `未出勤: ${record.reason}` : "未出勤"
       : "待打卡";
 
   mainButton.addEventListener("click", () => {
@@ -628,11 +628,13 @@ function createTodayStudentCard(student) {
     absentButton.classList.add("active");
     absentButton.setAttribute("aria-label", "重新修改出勤状态");
     absentButton.title = "重新修改出勤状态";
-    absencePanel.classList.remove("hidden");
-    activateReasonButton(absencePanel, record.reason);
-    if (record.reason === "其他" || (record.reason && !defaultAbsenceReasons.includes(record.reason))) {
+    if (!record.reason || record.reason === "其他") {
+      absencePanel.classList.remove("hidden");
+      activateReasonButton(absencePanel, record.reason);
+    }
+    if (record.reason === "其他") {
       customReasonInput.classList.remove("hidden");
-      customReasonInput.value = record.reason === "其他" ? "" : record.reason;
+      customReasonInput.value = "";
     }
   }
 
@@ -652,7 +654,7 @@ function createTodayStudentCard(student) {
       persistAndRender();
       return;
     }
-    upsertAttendance(student.id, date, "absent", record?.reason || "请假");
+    upsertAttendance(student.id, date, "absent", "");
     persistAndRender();
   });
 
@@ -676,6 +678,10 @@ function createTodayStudentCard(student) {
   customReasonInput.addEventListener("input", (event) => {
     upsertAttendance(student.id, date, "absent", event.target.value.trim() || "其他");
     persistState();
+  });
+
+  customReasonInput.addEventListener("change", () => {
+    if (customReasonInput.value.trim()) persistAndRender();
   });
 
   return card;
