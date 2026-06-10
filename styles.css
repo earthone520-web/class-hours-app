@@ -1397,4 +1397,57 @@ tbody tr:hover {
   .segmented-control {
     width: 100%;
   }
+
+  .sheet-table-wrap {
+    overflow-x: hidden;
+    border-radius: 12px;
+  }
+
+  .sheet-table-wrap table,
+  .sheet-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .sheet-table th,
+  .sheet-table td {
+    padding: 8px 4px;
+    font-size: 18px;
+  }
+
+  .sheet-table th:nth-child(1),
+  .sheet-table td:nth-child(1) {
+    width: 26%;
+  }
+
+  .sheet-table th:nth-child(2),
+  .sheet-table td:nth-child(2) {
+    width: 22%;
+  }
+
+  .sheet-table th:nth-child(3),
+  .sheet-table td:nth-child(3) {
+    width: 52%;
+  }
+
+  .sheet-table .student-column,
+  .sheet-table .student-sheet-cell {
+    border-left-width: 2px;
+  }
+
+  .sheet-status-label,
+  .sheet-lesson-input {
+    min-height: 50px;
+    padding: 8px 4px;
+    font-size: 18px;
+  }
+
+  .sheet-reason-input {
+    width: calc(100% - 12px);
+    margin: 0 6px 8px;
+    padding: 7px 8px;
+    border-radius: 14px;
+    font-size: 15px;
+  }
 }
