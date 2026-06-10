@@ -620,10 +620,14 @@ function createTodayStudentCard(student) {
 
   if (record?.status === "present") {
     presentButton.classList.add("active");
+    presentButton.setAttribute("aria-label", "重新修改出勤状态");
+    presentButton.title = "重新修改出勤状态";
   }
 
   if (record?.status === "absent") {
     absentButton.classList.add("active");
+    absentButton.setAttribute("aria-label", "重新修改出勤状态");
+    absentButton.title = "重新修改出勤状态";
     absencePanel.classList.remove("hidden");
     activateReasonButton(absencePanel, record.reason);
     if (record.reason === "其他" || (record.reason && !defaultAbsenceReasons.includes(record.reason))) {
@@ -633,11 +637,21 @@ function createTodayStudentCard(student) {
   }
 
   presentButton.addEventListener("click", () => {
+    if (record?.status === "present") {
+      clearAttendance(student.id, date);
+      persistAndRender();
+      return;
+    }
     upsertAttendance(student.id, date, "present", "");
     persistAndRender();
   });
 
   absentButton.addEventListener("click", () => {
+    if (record?.status === "absent") {
+      clearAttendance(student.id, date);
+      persistAndRender();
+      return;
+    }
     upsertAttendance(student.id, date, "absent", record?.reason || "请假");
     persistAndRender();
   });
@@ -910,6 +924,10 @@ function upsertAttendance(studentId, date, status, reason) {
     reason: status === "absent" ? reason : "",
     updatedAt: new Date().toISOString(),
   });
+}
+
+function clearAttendance(studentId, date) {
+  state.attendance = state.attendance.filter((record) => !(record.studentId === studentId && record.date === date));
 }
 
 function getAttendance(studentId, date) {
