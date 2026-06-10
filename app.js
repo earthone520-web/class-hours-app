@@ -1,23 +1,14 @@
 const STORAGE_KEY = "lesson-tracker-app-v1";
-const weekdays = [
-  { value: 0, label: "周日" },
-  { value: 1, label: "周一" },
-  { value: 2, label: "周二" },
-  { value: 3, label: "周三" },
-  { value: 4, label: "周四" },
-  { value: 5, label: "周五" },
-  { value: 6, label: "周六" },
-];
-
-const defaultAbsenceReasons = ["外出", "请假", "生病", "其他"];
+const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+const defaultAbsenceReasons = ["请假", "生病", "外出", "其他"];
 
 const initialData = {
   classes: [
-    { id: crypto.randomUUID(), name: "吴中A班", schedule: [2, 4, 6] },
-    { id: crypto.randomUUID(), name: "吴中D班", schedule: [2, 4, 6] },
-    { id: crypto.randomUUID(), name: "吴中E班", schedule: [2, 4, 6] },
-    { id: crypto.randomUUID(), name: "吴中F班", schedule: [1, 3, 5] },
-    { id: crypto.randomUUID(), name: "园区A班", schedule: [0, 3, 5] },
+    { id: crypto.randomUUID(), name: "吴中A班", dates: generateDatesForWeekdays([2, 4, 6]) },
+    { id: crypto.randomUUID(), name: "吴中D班", dates: generateDatesForWeekdays([2, 4, 6]) },
+    { id: crypto.randomUUID(), name: "吴中E班", dates: generateDatesForWeekdays([2, 4, 6]) },
+    { id: crypto.randomUUID(), name: "吴中F班", dates: generateDatesForWeekdays([1, 3, 5]) },
+    { id: crypto.randomUUID(), name: "园区A班", dates: generateDatesForWeekdays([0, 3, 5]) },
   ],
   students: [],
   attendance: [],
@@ -46,6 +37,7 @@ const initialData = {
 const state = loadState();
 let selectedStudentId = null;
 let deferredPrompt = null;
+let editingClassDates = [];
 
 const elements = {
   installButton: document.querySelector("#installButton"),
@@ -54,6 +46,8 @@ const elements = {
   todayTitle: document.querySelector("#todayTitle"),
   todayScheduledCount: document.querySelector("#todayScheduledCount"),
   todayCompletedCount: document.querySelector("#todayCompletedCount"),
+  attendanceDateInput: document.querySelector("#attendanceDateInput"),
+  attendanceClassFilter: document.querySelector("#attendanceClassFilter"),
   todayList: document.querySelector("#todayList"),
   markAllPresentButton: document.querySelector("#markAllPresentButton"),
   resetTodayButton: document.querySelector("#resetTodayButton"),
@@ -92,7 +86,9 @@ const elements = {
   classDialogTitle: document.querySelector("#classDialogTitle"),
   classIdInput: document.querySelector("#classIdInput"),
   classNameInput: document.querySelector("#classNameInput"),
-  weekdayCheckboxes: document.querySelector("#weekdayCheckboxes"),
+  classDateInput: document.querySelector("#classDateInput"),
+  addClassDateButton: document.querySelector("#addClassDateButton"),
+  classDatesList: document.querySelector("#classDatesList"),
   deleteClassButton: document.querySelector("#deleteClassButton"),
   closeClassDialogButton: document.querySelector("#closeClassDialogButton"),
   todayStudentTemplate: document.querySelector("#todayStudentTemplate"),
@@ -103,7 +99,6 @@ init();
 function init() {
   registerServiceWorker();
   setupInstallPrompt();
-  renderWeekdayOptions();
   bindEvents();
   setDefaultRangeInputs();
   renderAll();
@@ -114,14 +109,17 @@ function bindEvents() {
     button.addEventListener("click", () => switchView(button.dataset.target));
   });
 
+  elements.attendanceDateInput.addEventListener("input", renderTodayView);
+  elements.attendanceClassFilter.addEventListener("change", renderTodayView);
+
   elements.markAllPresentButton.addEventListener("click", () => {
-    getTodayStudents().forEach((student) => upsertAttendance(student.id, todayIso(), "present", ""));
+    getStudentsForAttendanceDate().forEach((student) => upsertAttendance(student.id, attendanceDate(), "present", ""));
     persistAndRender();
   });
 
   elements.resetTodayButton.addEventListener("click", () => {
-    const today = todayIso();
-    state.attendance = state.attendance.filter((record) => record.date !== today);
+    const date = attendanceDate();
+    state.attendance = state.attendance.filter((record) => record.date !== date);
     persistAndRender();
   });
 
@@ -140,6 +138,7 @@ function bindEvents() {
   elements.importCsvInput.addEventListener("change", importStudentCsv);
   elements.addStudentButton.addEventListener("click", () => openStudentDialog());
   elements.addClassButton.addEventListener("click", () => openClassDialog());
+  elements.addClassDateButton.addEventListener("click", addEditingClassDate);
   elements.studentForm.addEventListener("submit", saveStudent);
   elements.classForm.addEventListener("submit", saveClass);
   elements.deleteStudentButton.addEventListener("click", deleteStudent);
@@ -158,17 +157,18 @@ function renderAll() {
 }
 
 function renderTodayView() {
-  const today = new Date();
-  const todayStudents = getTodayStudents();
-  const completedCount = todayStudents.filter((student) => getAttendance(student.id, todayIso())).length;
+  const date = attendanceDate();
+  const targetDate = new Date(`${date}T00:00:00`);
+  const todayStudents = getStudentsForAttendanceDate();
+  const completedCount = todayStudents.filter((student) => getAttendance(student.id, date)).length;
 
-  elements.todayTitle.textContent = `${formatDate(today)} · ${weekdayLabel(today.getDay())}`;
+  elements.todayTitle.textContent = `${formatDate(targetDate)} · 周${weekdays[targetDate.getDay()]}`;
   elements.todayScheduledCount.textContent = String(todayStudents.length);
   elements.todayCompletedCount.textContent = String(completedCount);
   elements.todayList.innerHTML = "";
 
   if (!todayStudents.length) {
-    elements.todayList.innerHTML = `<div class="detail-card empty-state"><p>今天没有安排上课的班级，明天再来打卡即可。</p></div>`;
+    elements.todayList.innerHTML = `<div class="detail-card empty-state"><p>这一天没有安排上课的班级。可以到“学员管理”里编辑班级，加入上课日期。</p></div>`;
     return;
   }
 
@@ -184,12 +184,14 @@ function renderStudentsView() {
     .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"))
     .map((classItem) => {
       const studentCount = state.students.filter((student) => student.classId === classItem.id && student.active !== false).length;
+      const nextDate = getNextClassDate(classItem);
       return `
         <article class="class-card">
           <div class="class-card-header">
             <div>
               <h3>${escapeHtml(classItem.name)}</h3>
-              <p class="student-meta">${formatSchedule(classItem.schedule)}</p>
+              <p class="student-meta">${formatClassDates(classItem.dates)}</p>
+              <p class="student-meta">下一次：${escapeHtml(nextDate || "未排课")}</p>
             </div>
             <span class="chip">${studentCount} 人</span>
           </div>
@@ -304,6 +306,19 @@ function renderRecordsView() {
       </div>
     `
     : "";
+  const calendarBlock = selectedStudent
+    ? `
+      <div class="list-card">
+        <div class="section-heading">
+          <div>
+            <h3>当月日历</h3>
+            <p class="filter-caption">绿色为出勤，红色为缺勤；缺勤日期会直接显示原因。</p>
+          </div>
+        </div>
+        ${buildStudentMonthCalendar(selectedStudent.id, elements.recordsStartMonthInput.value)}
+      </div>
+    `
+    : "";
   const parentMessageBlock = selectedStudent && recordsData.rows[0]
     ? `
       <div class="message-card">
@@ -323,6 +338,7 @@ function renderRecordsView() {
   elements.selectedStudentCard.innerHTML = `
     ${header}
     <p class="filter-caption">已按 ${escapeHtml(recordsData.filterLabel)} 查询。</p>
+    ${calendarBlock}
     ${parentMessageBlock}
     ${pendingBlock}
     <div>
@@ -400,12 +416,13 @@ function createTodayStudentCard(student) {
   const absentButton = fragment.querySelector(".status-button.absent");
   const absencePanel = fragment.querySelector(".absence-panel");
   const customReasonInput = fragment.querySelector(".custom-reason");
-  const record = getAttendance(student.id, todayIso());
+  const date = attendanceDate();
+  const record = getAttendance(student.id, date);
 
   avatar.textContent = getInitial(student.name);
   avatar.style.background = avatarColor(student.name);
   studentName.textContent = student.name;
-  studentMeta.textContent = `${student.className} · ${weekdayLabel(new Date().getDay())}`;
+  studentMeta.textContent = `${student.className} · ${date}`;
 
   mainButton.addEventListener("click", () => {
     const classId = getClassById(student.classId)?.id || "";
@@ -424,19 +441,19 @@ function createTodayStudentCard(student) {
     absentButton.classList.add("active");
     absencePanel.classList.remove("hidden");
     activateReasonButton(absencePanel, record.reason);
-    if (record.reason && !defaultAbsenceReasons.includes(record.reason)) {
+    if (record.reason === "其他" || (record.reason && !defaultAbsenceReasons.includes(record.reason))) {
       customReasonInput.classList.remove("hidden");
-      customReasonInput.value = record.reason;
+      customReasonInput.value = record.reason === "其他" ? "" : record.reason;
     }
   }
 
   presentButton.addEventListener("click", () => {
-    upsertAttendance(student.id, todayIso(), "present", "");
+    upsertAttendance(student.id, date, "present", "");
     persistAndRender();
   });
 
   absentButton.addEventListener("click", () => {
-    upsertAttendance(student.id, todayIso(), "absent", record?.reason || "请假");
+    upsertAttendance(student.id, date, "absent", record?.reason || "请假");
     persistAndRender();
   });
 
@@ -446,19 +463,19 @@ function createTodayStudentCard(student) {
       if (reason === "其他") {
         customReasonInput.classList.remove("hidden");
         customReasonInput.focus();
-        const current = getAttendance(student.id, todayIso());
-        upsertAttendance(student.id, todayIso(), "absent", current?.reason && !defaultAbsenceReasons.includes(current.reason) ? current.reason : "");
+        const current = getAttendance(student.id, date);
+        upsertAttendance(student.id, date, "absent", current?.reason && !defaultAbsenceReasons.includes(current.reason) ? current.reason : "其他");
       } else {
         customReasonInput.classList.add("hidden");
         customReasonInput.value = "";
-        upsertAttendance(student.id, todayIso(), "absent", reason);
+        upsertAttendance(student.id, date, "absent", reason);
       }
       persistAndRender();
     });
   });
 
   customReasonInput.addEventListener("input", (event) => {
-    upsertAttendance(student.id, todayIso(), "absent", event.target.value.trim());
+    upsertAttendance(student.id, date, "absent", event.target.value.trim() || "其他");
     persistState();
   });
 
@@ -467,7 +484,7 @@ function createTodayStudentCard(student) {
 
 function activateReasonButton(panel, reason) {
   panel.querySelectorAll(".reason-chip").forEach((button) => {
-    const isActive = button.dataset.reason === reason || (button.dataset.reason === "其他" && reason && !defaultAbsenceReasons.includes(reason));
+    const isActive = button.dataset.reason === reason || (button.dataset.reason === "其他" && reason && (reason === "其他" || !defaultAbsenceReasons.includes(reason)));
     button.classList.toggle("active", isActive);
   });
 }
@@ -529,28 +546,28 @@ function openClassDialog(classId = "") {
     elements.classIdInput.value = classItem.id;
     elements.classNameInput.value = classItem.name;
     elements.deleteClassButton.classList.remove("hidden");
-    [...elements.weekdayCheckboxes.querySelectorAll("input")].forEach((input) => {
-      input.checked = classItem.schedule.includes(Number(input.value));
-    });
+    editingClassDates = [...(classItem.dates || [])].sort();
   } else {
     elements.classDialogTitle.textContent = "新增班级";
     elements.classForm.reset();
     elements.classIdInput.value = "";
     elements.deleteClassButton.classList.add("hidden");
+    editingClassDates = [];
   }
+  elements.classDateInput.value = "";
+  renderEditingClassDates();
   elements.classDialog.showModal();
 }
 
 function saveClass(event) {
   event.preventDefault();
   const id = elements.classIdInput.value;
-  const schedule = [...elements.weekdayCheckboxes.querySelectorAll("input:checked")].map((input) => Number(input.value)).sort();
-  if (!elements.classNameInput.value.trim() || !schedule.length) return;
+  if (!elements.classNameInput.value.trim()) return;
 
   const payload = {
     id: id || crypto.randomUUID(),
     name: elements.classNameInput.value.trim(),
-    schedule,
+    dates: [...new Set(editingClassDates)].sort(),
   };
   const index = state.classes.findIndex((item) => item.id === payload.id);
   if (index >= 0) state.classes[index] = payload;
@@ -558,6 +575,33 @@ function saveClass(event) {
 
   elements.classDialog.close();
   persistAndRender();
+}
+
+function addEditingClassDate() {
+  const value = elements.classDateInput.value;
+  if (!value || editingClassDates.includes(value)) return;
+  editingClassDates.push(value);
+  editingClassDates.sort();
+  elements.classDateInput.value = "";
+  renderEditingClassDates();
+}
+
+function renderEditingClassDates() {
+  elements.classDatesList.innerHTML = editingClassDates.length
+    ? editingClassDates.map((date) => `
+      <button class="date-chip" type="button" data-remove-class-date="${date}">
+        <span>${escapeHtml(date)}</span>
+        <strong>删除</strong>
+      </button>
+    `).join("")
+    : `<p class="student-meta">还没有排课日期，可以先保存班级，之后再回来补日期。</p>`;
+
+  elements.classDatesList.querySelectorAll("[data-remove-class-date]").forEach((button) => {
+    button.addEventListener("click", () => {
+      editingClassDates = editingClassDates.filter((date) => date !== button.dataset.removeClassDate);
+      renderEditingClassDates();
+    });
+  });
 }
 
 function deleteClass() {
@@ -580,15 +624,6 @@ function populateClassOptions() {
     .join("");
 }
 
-function renderWeekdayOptions() {
-  elements.weekdayCheckboxes.innerHTML = weekdays.map((day) => `
-    <label class="weekday-option">
-      <input type="checkbox" value="${day.value}">
-      <span>${day.label}</span>
-    </label>
-  `).join("");
-}
-
 function switchView(target) {
   elements.panels.forEach((panel) => panel.classList.toggle("active", panel.dataset.view === target));
   elements.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.target === target));
@@ -600,10 +635,31 @@ function loadState() {
     if (!raw) return structuredClone(initialData);
     const parsed = JSON.parse(raw);
     if (!parsed.classes || !parsed.students || !parsed.attendance) throw new Error("invalid");
-    return parsed;
+    return migrateState(parsed);
   } catch {
     return structuredClone(initialData);
   }
+}
+
+function migrateState(data) {
+  return {
+    classes: data.classes.map((classItem) => ({
+      ...classItem,
+      dates: normalizeClassDates(classItem),
+    })),
+    students: data.students,
+    attendance: data.attendance,
+  };
+}
+
+function normalizeClassDates(classItem) {
+  if (Array.isArray(classItem.dates)) {
+    return [...new Set(classItem.dates.filter(isIsoDate))].sort();
+  }
+  if (Array.isArray(classItem.schedule)) {
+    return generateDatesForWeekdays(classItem.schedule);
+  }
+  return [];
 }
 
 function persistState() {
@@ -637,16 +693,18 @@ function getAttendance(studentId, date) {
   return state.attendance.find((record) => record.studentId === studentId && record.date === date);
 }
 
-function getTodayStudents() {
-  const weekday = new Date().getDay();
+function getStudentsForAttendanceDate() {
+  const date = attendanceDate();
+  const classId = elements.attendanceClassFilter.value;
   return state.students
     .filter((student) => student.active !== false)
     .map((student) => ({
       ...student,
       className: getClassById(student.classId)?.name || "未分班",
-      schedule: getClassById(student.classId)?.schedule || [],
+      classDates: getClassById(student.classId)?.dates || [],
     }))
-    .filter((student) => student.schedule.includes(weekday));
+    .filter((student) => student.classDates.includes(date))
+    .filter((student) => !classId || student.classId === classId);
 }
 
 function exportMonthlyCsv() {
@@ -674,9 +732,10 @@ function importBackupJson(event) {
   file.text().then((text) => {
     const parsed = JSON.parse(text);
     if (!parsed.classes || !parsed.students || !parsed.attendance) throw new Error("格式不正确");
-    state.classes = parsed.classes;
-    state.students = parsed.students;
-    state.attendance = parsed.attendance;
+    const migrated = migrateState(parsed);
+    state.classes = migrated.classes;
+    state.students = migrated.students;
+    state.attendance = migrated.attendance;
     selectedStudentId = null;
     persistAndRender();
     alert("备份导入成功。");
@@ -691,16 +750,18 @@ function importStudentCsv(event) {
     const lines = text.trim().split(/\r?\n/).filter(Boolean);
     const [, ...rows] = lines;
     rows.forEach((row) => {
-      const [className, studentName, scheduleText = ""] = parseCsvLine(row);
+      const [className, studentName, datesText = ""] = parseCsvLine(row);
       if (!className || !studentName) return;
       let classItem = state.classes.find((item) => item.name === className.trim());
       if (!classItem) {
         classItem = {
           id: crypto.randomUUID(),
           name: className.trim(),
-          schedule: parseScheduleText(scheduleText),
+          dates: parseClassDatesText(datesText),
         };
         state.classes.push(classItem);
+      } else if (datesText.trim()) {
+        classItem.dates = [...new Set([...(classItem.dates || []), ...parseClassDatesText(datesText)])].sort();
       }
       const duplicated = state.students.some((student) => student.classId === classItem.id && student.name === studentName.trim());
       if (duplicated) return;
@@ -719,16 +780,15 @@ function importStudentCsv(event) {
   event.target.value = "";
 }
 
-function parseScheduleText(text) {
-  const mapping = {
-    一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0,
-    周一: 1, 周二: 2, 周三: 3, 周四: 4, 周五: 5, 周六: 6, 周日: 0, 周天: 0,
-  };
-  const hits = new Set();
-  Object.entries(mapping).forEach(([key, value]) => {
-    if (text.includes(key)) hits.add(value);
-  });
-  return hits.size ? [...hits].sort() : [1, 3, 5];
+function parseClassDatesText(text) {
+  const matches = text.match(/\d{4}-\d{1,2}-\d{1,2}/g) || [];
+  const normalized = matches
+    .map((match) => {
+      const [year, month, day] = match.split("-").map(Number);
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    })
+    .filter(isIsoDate);
+  return [...new Set(normalized)].sort();
 }
 
 function parseCsvLine(line) {
@@ -782,6 +842,7 @@ function setDefaultRangeInputs() {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const currentMonth = `${now.getFullYear()}-${month}`;
+  elements.attendanceDateInput.value = todayIso();
   elements.recordsStartMonthInput.value = currentMonth;
   elements.recordsEndMonthInput.value = currentMonth;
   elements.reportStartMonthInput.value = currentMonth;
@@ -789,6 +850,7 @@ function setDefaultRangeInputs() {
 }
 
 function populateFilterOptions() {
+  fillClassSelect(elements.attendanceClassFilter, elements.attendanceClassFilter.value);
   fillClassSelect(elements.recordsClassFilter, elements.recordsClassFilter.value);
   fillClassSelect(elements.reportClassFilter, elements.reportClassFilter.value);
   syncStudentOptions(elements.recordsClassFilter, elements.recordsStudentFilter, elements.recordsStudentFilter.value || selectedStudentId);
@@ -901,7 +963,7 @@ function buildReportRows({ classId = "", studentId = "", startDate, endDate }) {
     .filter((student) => !studentId || student.id === studentId)
     .map((student) => {
       const classItem = getClassById(student.classId);
-      const scheduledDates = getScheduledDatesBetween(startDate, endDate, classItem?.schedule || []);
+      const scheduledDates = getScheduledDatesBetween(startDate, endDate, classItem?.dates || []);
       const records = state.attendance.filter((record) => record.studentId === student.id && record.date >= startDate && record.date <= endDate);
       const present = records.filter((record) => record.status === "present").length;
       const absent = records.filter((record) => record.status === "absent").length;
@@ -952,15 +1014,47 @@ function summarizeAbsenceReasons(studentId, startDate, endDate) {
   return [...counts.entries()].map(([reason, count]) => `${reason}${count}次`);
 }
 
+function buildStudentMonthCalendar(studentId, monthValue) {
+  const safeMonth = monthValue || todayIso().slice(0, 7);
+  const [year, month] = safeMonth.split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const student = state.students.find((item) => item.id === studentId);
+  const classDates = getClassById(student?.classId)?.dates || [];
+  const blanks = Array.from({ length: first.getDay() }, () => `<div class="calendar-day blank"></div>`);
+  const days = Array.from({ length: daysInMonth }, (_, index) => {
+    const day = index + 1;
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const record = getAttendance(studentId, date);
+    const isScheduled = classDates.includes(date);
+    const statusClass = record?.status === "present" ? "present" : record?.status === "absent" ? "absent" : isScheduled ? "scheduled" : "";
+    const label = record?.status === "present"
+      ? "出勤"
+      : record?.status === "absent"
+        ? record.reason || "缺勤"
+        : isScheduled
+          ? "有课"
+          : "";
+    return `
+      <div class="calendar-day ${statusClass}">
+        <strong>${day}</strong>
+        ${label ? `<span>${escapeHtml(label)}</span>` : ""}
+      </div>
+    `;
+  });
+
+  return `
+    <div class="calendar-grid month-calendar">
+      ${["日", "一", "二", "三", "四", "五", "六"].map((day) => `<div class="calendar-weekday">周${day}</div>`).join("")}
+      ${[...blanks, ...days].join("")}
+    </div>
+  `;
+}
+
 function getScheduledDatesBetween(startDate, endDate, schedule) {
-  const dates = [];
-  const cursor = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  while (cursor <= end) {
-    if (schedule.includes(cursor.getDay())) dates.push(toIsoDate(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return dates;
+  return [...new Set(schedule)]
+    .filter((date) => date >= startDate && date <= endDate)
+    .sort();
 }
 
 function getMonthEndDate(monthValue) {
@@ -972,12 +1066,36 @@ function getClassById(id) {
   return state.classes.find((item) => item.id === id);
 }
 
-function weekdayLabel(day) {
-  return weekdays.find((item) => item.value === day)?.label || "";
+function attendanceDate() {
+  return elements.attendanceDateInput.value || todayIso();
 }
 
-function formatSchedule(schedule) {
-  return schedule.length ? schedule.map(weekdayLabel).join(" / ") : "未设置上课周期";
+function generateDatesForWeekdays(days) {
+  const dates = [];
+  const start = new Date();
+  start.setDate(1);
+  const end = new Date(start.getFullYear(), start.getMonth() + 3, 0);
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    if (days.includes(cursor.getDay())) dates.push(toIsoDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function formatClassDates(dates = []) {
+  if (!dates.length) return "未排课";
+  const visible = dates.slice(0, 4).join(" / ");
+  return dates.length > 4 ? `${visible} 等 ${dates.length} 天` : visible;
+}
+
+function getNextClassDate(classItem) {
+  const today = todayIso();
+  return (classItem.dates || []).find((date) => date >= today) || "";
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function todayIso() {

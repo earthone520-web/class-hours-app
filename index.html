@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#f5efe4">
+  <meta name="theme-color" content="#2563eb">
   <title>课时统计助手</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css">
@@ -38,15 +38,23 @@
         </div>
 
         <div class="toolbar">
-          <button id="markAllPresentButton" class="primary-button" type="button">今日全部设为出勤</button>
-          <button id="resetTodayButton" class="ghost-button" type="button">清空今日记录</button>
+          <label class="field inline-field">
+            <span>考勤日期</span>
+            <input id="attendanceDateInput" class="text-input" type="date">
+          </label>
+          <label class="field inline-field">
+            <span>班级筛选</span>
+            <select id="attendanceClassFilter" class="text-input"></select>
+          </label>
+          <button id="markAllPresentButton" class="primary-button" type="button">当天全部设为出勤</button>
+          <button id="resetTodayButton" class="ghost-button" type="button">清空当天记录</button>
         </div>
 
         <div class="list-card">
           <div class="section-heading">
             <div>
-              <h3>今日名单</h3>
-              <p>只显示今天应该上课的学员，向下滑动即可浏览全部。</p>
+              <h3>当日名单</h3>
+              <p>只显示所选日期有课的学员，向下滑动即可浏览全部。</p>
             </div>
           </div>
           <div id="todayList" class="student-list"></div>
@@ -178,7 +186,7 @@
 
           <div class="list-card">
             <h3>批量学员导入</h3>
-            <p>支持 CSV 文件，列名为：班级,姓名,上课周期</p>
+            <p>支持 CSV 文件，列名为：班级,姓名,上课日期</p>
             <label class="upload-button wide">
               导入学员 CSV
               <input id="importCsvInput" type="file" accept=".csv,text/csv">
@@ -234,10 +242,14 @@
         <span>班级名称</span>
         <input id="classNameInput" class="text-input" type="text" required>
       </label>
-      <fieldset class="field">
-        <legend>上课周期</legend>
-        <div class="weekday-grid" id="weekdayCheckboxes"></div>
-      </fieldset>
+      <div class="field">
+        <span>上课日期</span>
+        <div class="date-adder">
+          <input id="classDateInput" class="text-input" type="date">
+          <button id="addClassDateButton" class="ghost-button small" type="button">加入日期</button>
+        </div>
+        <div id="classDatesList" class="date-chip-list"></div>
+      </div>
       <div class="toolbar">
         <button class="primary-button" type="submit">保存班级</button>
         <button id="deleteClassButton" class="danger-button hidden" type="button">删除班级</button>
@@ -256,7 +268,7 @@
       </button>
       <div class="attendance-actions">
         <button class="status-button present" type="button">出勤</button>
-        <button class="status-button absent" type="button">未出勤</button>
+        <button class="status-button absent" type="button">缺勤</button>
       </div>
       <div class="absence-panel hidden">
         <div class="reason-grid">
