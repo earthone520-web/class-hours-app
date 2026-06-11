@@ -2,6 +2,7 @@ const STORAGE_KEY = "lesson-tracker-app-v1";
 const STABLE_BACKUP_DB = "lesson-tracker-stable-storage";
 const STABLE_BACKUP_STORE = "snapshots";
 const STABLE_BACKUP_ID = "latest";
+const STABLE_BACKUP_LIMIT = 12;
 const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
 const defaultAbsenceReasons = ["请假", "生病", "外出", "其他"];
 
@@ -1144,13 +1145,21 @@ function saveStableBackup(snapshot = createStateSnapshot()) {
   openStableBackupDb()
     .then((db) => {
       const tx = db.transaction(STABLE_BACKUP_STORE, "readwrite");
-      tx.objectStore(STABLE_BACKUP_STORE).put({
+      const store = tx.objectStore(STABLE_BACKUP_STORE);
+      const savedAt = new Date().toISOString();
+      store.put({
         id: STABLE_BACKUP_ID,
         data: snapshot,
-        savedAt: new Date().toISOString(),
+        savedAt,
+      });
+      store.put({
+        id: `snapshot-${savedAt}`,
+        data: snapshot,
+        savedAt,
       });
       return waitForTransaction(tx);
     })
+    .then(() => pruneStableBackups())
     .catch(() => {});
 }
 
@@ -1158,9 +1167,45 @@ function readStableBackup() {
   return openStableBackupDb()
     .then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction(STABLE_BACKUP_STORE, "readonly");
-      const request = tx.objectStore(STABLE_BACKUP_STORE).get(STABLE_BACKUP_ID);
-      request.onsuccess = () => resolve(request.result?.data || null);
+      const store = tx.objectStore(STABLE_BACKUP_STORE);
+      const latestRequest = store.get(STABLE_BACKUP_ID);
+      latestRequest.onsuccess = () => {
+        const latest = latestRequest.result?.data || null;
+        if (isValidStateData(latest)) {
+          resolve(latest);
+          return;
+        }
+        const allRequest = store.getAll();
+        allRequest.onsuccess = () => {
+          const candidates = (allRequest.result || [])
+            .filter((item) => item?.id !== STABLE_BACKUP_ID && isValidStateData(item.data))
+            .sort((a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")));
+          resolve(candidates[0]?.data || null);
+        };
+        allRequest.onerror = () => reject(allRequest.error);
+      };
+      latestRequest.onerror = () => reject(latestRequest.error);
+    }))
+    .catch(() => null);
+}
+
+function pruneStableBackups() {
+  return openStableBackupDb()
+    .then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(STABLE_BACKUP_STORE, "readwrite");
+      const store = tx.objectStore(STABLE_BACKUP_STORE);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        (request.result || [])
+          .filter((item) => item?.id !== STABLE_BACKUP_ID)
+          .sort((a, b) => String(b.savedAt || "").localeCompare(String(a.savedAt || "")))
+          .slice(STABLE_BACKUP_LIMIT)
+          .forEach((item) => store.delete(item.id));
+      };
       request.onerror = () => reject(request.error);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
     }))
     .catch(() => null);
 }
@@ -1639,11 +1684,12 @@ function buildStudentSpreadsheetTable(student, startDate, endDate) {
                 <td class="date-col">${escapeHtml(formatShortDate(date))}</td>
                 <td>${escapeHtml(shortWeekday(date))}</td>
                 <td class="student-sheet-cell ${isAbsent ? "absent" : isPresent ? "present" : "pending"} ${isBlue ? "blue-highlight" : ""}" data-sheet-status="${student.id}" data-date="${date}">
-                  <button class="sheet-color-toggle ${isBlue ? "active" : ""}" type="button" data-sheet-color="${student.id}" data-date="${date}" aria-label="切换浅蓝底色">蓝</button>
+                  <button class="sheet-color-toggle ${isBlue ? "active" : ""}" type="button" data-sheet-color="${student.id}" data-date="${date}" aria-label="切换红色或蓝色底色" title="切换底色"></button>
                   ${isPresent
                     ? `<input class="sheet-lesson-input" type="text" inputmode="numeric" value="${escapeAttribute(value)}" data-sheet-lesson="${student.id}" data-date="${date}" aria-label="课次数字">`
-                    : `<span class="sheet-status-label">${escapeHtml(value || "待补录")}</span>`}
-                  ${isAbsent ? `<input class="sheet-reason-input" type="text" value="${escapeAttribute(record.reason || "请假")}" data-sheet-reason="${student.id}" data-date="${date}" aria-label="缺勤原因">` : ""}
+                    : isAbsent
+                      ? `<input class="sheet-reason-input compact-reason" type="text" value="${escapeAttribute(record.reason || "请假")}" data-sheet-reason="${student.id}" data-date="${date}" aria-label="缺勤原因">`
+                      : `<span class="sheet-status-label">${escapeHtml(value || "待补录")}</span>`}
                 </td>
               </tr>
             `;
@@ -1717,8 +1763,8 @@ function createStudentSheetImageBlob(student, startDate, endDate) {
   const dates = [...new Set([...scheduledDates, ...recordedDates, ...styledDates])].sort();
   const presentNumbers = buildPresentLessonNumbers(student.id);
   const columns = [190, 160, 550];
-  const rowHeight = 72;
-  const headerHeight = 78;
+  const rowHeight = 52;
+  const headerHeight = 62;
   const width = columns.reduce((sum, value) => sum + value, 0);
   const height = headerHeight + Math.max(dates.length, 1) * rowHeight;
   const canvas = document.createElement("canvas");
@@ -1732,9 +1778,9 @@ function createStudentSheetImageBlob(student, startDate, endDate) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  drawSheetCell(ctx, 0, 0, columns[0], headerHeight, "日期", { fill: "#d6dce2", bold: true, size: 34 });
-  drawSheetCell(ctx, columns[0], 0, columns[1], headerHeight, "星期", { fill: "#d6dce2", bold: true, size: 34 });
-  drawSheetCell(ctx, columns[0] + columns[1], 0, columns[2], headerHeight, student.name, { fill: "#d6dce2", bold: true, size: 34 });
+  drawSheetCell(ctx, 0, 0, columns[0], headerHeight, "日期", { fill: "#d6dce2", bold: true, size: 30 });
+  drawSheetCell(ctx, columns[0], 0, columns[1], headerHeight, "星期", { fill: "#d6dce2", bold: true, size: 30 });
+  drawSheetCell(ctx, columns[0] + columns[1], 0, columns[2], headerHeight, student.name, { fill: "#d6dce2", bold: true, size: 30 });
   ctx.fillStyle = "#16a34a";
   ctx.fillRect(columns[0] + columns[1] - 2, 0, 4, height);
 
@@ -1750,13 +1796,13 @@ function createStudentSheetImageBlob(student, startDate, endDate) {
       : isAbsent
         ? record.reason || "请假"
         : date ? "待补录" : "暂无记录";
-    drawSheetCell(ctx, 0, y, columns[0], rowHeight, date ? formatShortDate(date) : "", { fill: "#eef0f3", bold: true, size: 30 });
-    drawSheetCell(ctx, columns[0], y, columns[1], rowHeight, date ? shortWeekday(date) : "", { size: 30 });
+    drawSheetCell(ctx, 0, y, columns[0], rowHeight, date ? formatShortDate(date) : "", { fill: "#eef0f3", bold: true, size: 26 });
+    drawSheetCell(ctx, columns[0], y, columns[1], rowHeight, date ? shortWeekday(date) : "", { size: 26 });
     drawSheetCell(ctx, columns[0] + columns[1], y, columns[2], rowHeight, value, {
       fill: isBlue ? "#dbeafe" : isAbsent ? "#e6a3a6" : "#ffffff",
       color: isBlue ? "#1e3a8a" : isAbsent ? "#7f1d1d" : isPresent ? "#111827" : "#9aa3ae",
       bold: true,
-      size: isAbsent ? 28 : 30,
+      size: isAbsent ? 24 : 26,
     });
   });
 
