@@ -227,6 +227,10 @@
         <select id="studentClassInput" class="text-input"></select>
       </label>
       <label class="field">
+        <span>课包总课次</span>
+        <input id="studentPackageInput" class="text-input" type="number" min="0" step="1" placeholder="例如 30 或 50，留空则不提醒">
+      </label>
+      <label class="field">
         <span>备注</span>
         <input id="studentNoteInput" class="text-input" type="text" placeholder="例如昵称、特殊说明">
       </label>
@@ -294,6 +298,7 @@
     </article>
   </template>
 
+  <div id="appToast" class="app-toast hidden" role="status" aria-live="polite"></div>
   <script src="./app.js" defer></script>
 </body>
 </html>

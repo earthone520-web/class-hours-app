@@ -362,6 +362,11 @@ h2 {
   border-color: rgba(31, 41, 55, 0.08);
 }
 
+.attendance-card.awaiting-record-open {
+  border-color: rgba(79, 70, 229, 0.34);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08), var(--shadow-soft);
+}
+
 .student-main {
   display: flex;
   align-items: center;
@@ -577,7 +582,7 @@ h2 {
 }
 
 .summary-card {
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-soft);
 }
 
 .detail-card {
@@ -947,29 +952,64 @@ tbody tr:hover {
 .segmented-control {
   display: inline-grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  padding: 4px;
-  border-radius: var(--radius);
-  background: rgba(219, 234, 254, 0.66);
-  border: 1px solid rgba(37, 99, 235, 0.14);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.74);
+  border: 1px solid rgba(148, 163, 184, 0.16);
 }
 
 .segmented-control button {
-  padding: 10px 14px;
-  border-radius: calc(var(--radius) - 2px);
+  position: relative;
+  padding: 7px 10px 9px;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .segmented-control button.active {
-  background: #fff;
+  background: rgba(238, 242, 255, 0.52);
   color: var(--brand-strong);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
+}
+
+.segmented-control button.active::after {
+  content: "";
+  position: absolute;
+  left: 24%;
+  right: 24%;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .record-view-shell {
   display: grid;
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.package-progress {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(238, 242, 255, 0.82);
+  color: var(--brand-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.package-progress.due {
+  background: rgba(254, 226, 226, 0.78);
+  color: var(--absent);
 }
 
 .view-pane {
@@ -1096,11 +1136,34 @@ tbody tr:hover {
   padding: 7px;
 }
 
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(88px + env(safe-area-inset-bottom));
+  z-index: 80;
+  transform: translateX(-50%);
+  max-width: min(86vw, 360px);
+  padding: 9px 13px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(12px);
+}
+
 @media (max-width: 720px) {
   :root {
-    --radius: 16px;
-    --shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
-    --shadow-soft: 0 2px 10px rgba(15, 23, 42, 0.05);
+    --brand: #716ee7;
+    --brand-strong: #5a55d6;
+    --present: #2d9461;
+    --present-soft: #effaf4;
+    --absent: #c44c52;
+    --absent-soft: #fff4f4;
+    --radius: 14px;
+    --line: rgba(31, 41, 55, 0.075);
+    --shadow: 0 3px 10px rgba(15, 23, 42, 0.035);
+    --shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.035);
   }
 
   body {
@@ -1108,11 +1171,11 @@ tbody tr:hover {
   }
 
   .app-shell {
-    padding: 24px 20px 0;
+    padding: 20px 18px 0;
   }
 
   .panel {
-    gap: 16px;
+    gap: 13px;
   }
 
   .topbar, .section-heading, .hero-card {
@@ -1124,8 +1187,8 @@ tbody tr:hover {
   }
 
   .hero-card {
-    gap: 18px;
-    padding: 0 0 18px;
+    gap: 14px;
+    padding: 0 0 8px;
   }
 
   .today-heading {
@@ -1134,13 +1197,13 @@ tbody tr:hover {
   }
 
   .today-heading h2 {
-    font-size: 22px;
+    font-size: 20px;
     line-height: 1.2;
     font-weight: 850;
   }
 
   .today-date-picker {
-    font-size: 20px;
+    font-size: 18px;
     line-height: 1;
     gap: 8px;
   }
@@ -1156,25 +1219,25 @@ tbody tr:hover {
   .hero-stats {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: 9px;
     width: 100%;
   }
 
   .hero-stats div {
     justify-content: center;
-    padding: 11px 12px;
-    min-height: 52px;
+    padding: 8px 9px;
+    min-height: 42px;
     gap: 4px;
   }
 
   .hero-stats span {
-    font-size: 14px;
+    font-size: 12px;
     white-space: nowrap;
   }
 
   .hero-stats strong {
-    font-size: 28px;
-    font-weight: 850;
+    font-size: 23px;
+    font-weight: 820;
   }
 
   .today-tools {
@@ -1221,21 +1284,51 @@ tbody tr:hover {
     border-color: transparent;
   }
 
+  .list-card,
+  .detail-card {
+    padding: 14px;
+    border-radius: 14px;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .summary-card {
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: 12px;
+    box-shadow: none;
+    line-height: 1.15;
+  }
+
+  .summary-card span {
+    font-size: 11px;
+  }
+
+  .summary-card strong {
+    margin-top: 2px;
+    font-size: 21px;
+    line-height: 1;
+  }
+
   .student-list {
-    gap: 14px;
+    gap: 11px;
   }
 
   .student-card,
   .class-card {
-    padding: 20px;
-    border-radius: 16px;
+    padding: 15px 16px;
+    border-radius: 14px;
   }
 
   .attendance-card {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
-    min-height: 112px;
-    padding: 20px 22px;
+    min-height: 88px;
+    padding: 14px 16px;
   }
 
   .attendance-card .student-main {
@@ -1249,16 +1342,16 @@ tbody tr:hover {
   }
 
   .class-badge {
-    padding: 6px 10px;
+    padding: 4px 8px;
     border-radius: 7px;
-    font-size: 14px;
+    font-size: 12px;
     line-height: 1.2;
     white-space: nowrap;
   }
 
   .attendance-card .student-name {
     min-width: 0;
-    font-size: 22px;
+    font-size: 19px;
     line-height: 1.15;
     white-space: nowrap;
     overflow: hidden;
@@ -1269,8 +1362,8 @@ tbody tr:hover {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 11px;
-    font-size: 14px;
+    padding: 4px 9px;
+    font-size: 12px;
     line-height: 1.2;
   }
 
@@ -1282,25 +1375,25 @@ tbody tr:hover {
   }
 
   .attendance-actions {
-    gap: 9px;
+    gap: 8px;
   }
 
   .attendance-card .status-button {
-    width: 50px;
-    height: 50px;
+    width: 42px;
+    height: 42px;
   }
 
   .attendance-card .status-button.present::before {
-    font-size: 31px;
+    font-size: 25px;
   }
 
   .attendance-card .status-button.absent::before {
-    font-size: 35px;
+    font-size: 29px;
   }
 
   .attendance-card.state-present .status-button.present::before,
   .attendance-card.state-absent .status-button.absent::before {
-    font-size: 32px;
+    font-size: 29px;
   }
 
   .absence-panel {
@@ -1312,8 +1405,8 @@ tbody tr:hover {
   }
 
   .reason-chip {
-    padding: 9px 14px;
-    font-size: 14px;
+    padding: 8px 12px;
+    font-size: 13px;
   }
 
   .bottom-nav {
@@ -1344,7 +1437,7 @@ tbody tr:hover {
     display: block;
     margin: 0 auto 4px;
     color: currentColor;
-    font-size: 23px;
+    font-size: 19px;
     line-height: 1;
   }
 
@@ -1396,6 +1489,12 @@ tbody tr:hover {
 
   .segmented-control {
     width: 100%;
+    max-width: 320px;
+  }
+
+  .segmented-control button {
+    padding: 6px 8px 8px;
+    font-size: 12px;
   }
 
   .sheet-table-wrap {

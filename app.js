@@ -44,6 +44,9 @@ let editingClassDates = [];
 let editingClassCalendarMonth = todayIso().slice(0, 7);
 const classCalendarMonths = {};
 let recordsViewMode = "calendar";
+let feedbackAudioContext = null;
+let pendingTodayRecordOpen = null;
+let toastTimer = null;
 
 const elements = {
   installButton: document.querySelector("#installButton"),
@@ -85,6 +88,7 @@ const elements = {
   studentIdInput: document.querySelector("#studentIdInput"),
   studentNameInput: document.querySelector("#studentNameInput"),
   studentClassInput: document.querySelector("#studentClassInput"),
+  studentPackageInput: document.querySelector("#studentPackageInput"),
   studentNoteInput: document.querySelector("#studentNoteInput"),
   deleteStudentButton: document.querySelector("#deleteStudentButton"),
   closeStudentDialogButton: document.querySelector("#closeStudentDialogButton"),
@@ -103,6 +107,7 @@ const elements = {
   deleteClassButton: document.querySelector("#deleteClassButton"),
   closeClassDialogButton: document.querySelector("#closeClassDialogButton"),
   todayStudentTemplate: document.querySelector("#todayStudentTemplate"),
+  appToast: document.querySelector("#appToast"),
 };
 
 init();
@@ -119,7 +124,10 @@ function init() {
 
 function bindEvents() {
   elements.navButtons.forEach((button) => {
-    button.addEventListener("click", () => switchView(button.dataset.target));
+    button.addEventListener("click", () => {
+      tactileFeedback("tap");
+      switchView(button.dataset.target);
+    });
   });
 
   elements.attendanceDateInput.addEventListener("input", renderTodayView);
@@ -315,6 +323,10 @@ function renderRecordsView() {
     <div class="summary-card"><span>待补录</span><strong>${summary.pending}</strong></div>
   `;
 
+  const packageProgress = selectedStudent ? getStudentPackageProgress(selectedStudent.id) : null;
+  const packageLine = selectedStudent && selectedStudent.packageTotal
+    ? `<p class="package-progress ${packageProgress.current >= packageProgress.total ? "due" : ""}">课包：已上 ${packageProgress.current} / ${packageProgress.total}${packageProgress.current >= packageProgress.total ? " · 需续费" : ""}</p>`
+    : "";
   const header = selectedStudent
     ? `
       <div class="student-main">
@@ -322,6 +334,7 @@ function renderRecordsView() {
         <div>
           <h3>${escapeHtml(selectedStudent.name)}</h3>
           <p class="student-meta">${escapeHtml(getClassById(selectedStudent.classId)?.name || "未分班")} · ${escapeHtml(selectedStudent.note || "无备注")}</p>
+          ${packageLine}
         </div>
       </div>
     `
@@ -373,6 +386,9 @@ function renderRecordsView() {
   const tableBlock = selectedStudent
     ? `
     <div class="view-pane ${recordsViewMode === "table" ? "active" : ""}" data-record-pane="table">
+      <div class="sheet-actions">
+        <button class="ghost-button small" type="button" data-save-sheet-image="${selectedStudent.id}">保存表格图片</button>
+      </div>
       ${buildStudentSpreadsheetTable(selectedStudent, scope.startDate, scope.endDate)}
     </div>
   `
@@ -512,6 +528,7 @@ function renderReportsView() {
 function bindRecordsInteractions() {
   document.querySelectorAll("[data-record-view]").forEach((button) => {
     button.addEventListener("click", () => {
+      tactileFeedback("tap");
       recordsViewMode = button.dataset.recordView;
       renderRecordsView();
     });
@@ -519,6 +536,7 @@ function bindRecordsInteractions() {
 
   document.querySelectorAll("[data-calendar-attendance]").forEach((button) => {
     button.addEventListener("click", () => {
+      tactileFeedback("tap");
       cycleAttendance(button.dataset.calendarAttendance, button.dataset.date);
       persistAndRender();
     });
@@ -549,6 +567,7 @@ function bindRecordsInteractions() {
 
   document.querySelectorAll("[data-sheet-status]").forEach((button) => {
     button.addEventListener("click", () => {
+      tactileFeedback("tap");
       cycleAttendance(button.dataset.sheetStatus, button.dataset.date);
       persistAndRender();
     });
@@ -581,6 +600,14 @@ function bindRecordsInteractions() {
       persistState();
       renderTodayView();
       renderReportsView();
+    });
+  });
+
+  document.querySelectorAll("[data-save-sheet-image]").forEach((button) => {
+    button.addEventListener("click", () => {
+      tactileFeedback("success");
+      const scope = getRangeScope(elements.recordsStartMonthInput.value, elements.recordsEndMonthInput.value);
+      saveStudentSheetImage(button.dataset.saveSheetImage, scope.startDate, scope.endDate);
     });
   });
 }
@@ -635,12 +662,7 @@ function createTodayStudentCard(student) {
       : "待打卡";
 
   mainButton.addEventListener("click", () => {
-    const classId = getClassById(student.classId)?.id || "";
-    selectedStudentId = student.id;
-    elements.recordsClassFilter.value = classId;
-    syncStudentOptions(elements.recordsClassFilter, elements.recordsStudentFilter, student.id);
-    switchView("records");
-    renderRecordsView();
+    handleTodayStudentRecordOpen(student, card);
   });
 
   if (record?.status === "present") {
@@ -664,6 +686,7 @@ function createTodayStudentCard(student) {
   }
 
   presentButton.addEventListener("click", () => {
+    tactileFeedback("success");
     if (record?.status === "present") {
       clearAttendance(student.id, date);
       persistAndRender();
@@ -674,6 +697,7 @@ function createTodayStudentCard(student) {
   });
 
   absentButton.addEventListener("click", () => {
+    tactileFeedback("warning");
     if (record?.status === "absent") {
       clearAttendance(student.id, date);
       persistAndRender();
@@ -685,6 +709,7 @@ function createTodayStudentCard(student) {
 
   fragment.querySelectorAll(".reason-chip").forEach((button) => {
     button.addEventListener("click", () => {
+      tactileFeedback("tap");
       const reason = button.dataset.reason;
       if (reason === "其他") {
         customReasonInput.classList.remove("hidden");
@@ -719,6 +744,71 @@ function activateReasonButton(panel, reason) {
   });
 }
 
+function handleTodayStudentRecordOpen(student, card) {
+  const now = Date.now();
+  const isConfirmed = pendingTodayRecordOpen?.id === student.id && now - pendingTodayRecordOpen.time < 1600;
+  tactileFeedback(isConfirmed ? "success" : "tap");
+  if (!isConfirmed) {
+    pendingTodayRecordOpen = { id: student.id, time: now };
+    if (card) {
+      card.classList.add("awaiting-record-open");
+      setTimeout(() => card.classList.remove("awaiting-record-open"), 1600);
+    }
+    showToast(`再点一次进入 ${student.name} 的记录`);
+    return;
+  }
+  if (card) card.classList.remove("awaiting-record-open");
+  pendingTodayRecordOpen = null;
+  openStudentRecords(student);
+}
+
+function openStudentRecords(student) {
+  const classId = getClassById(student.classId)?.id || "";
+  selectedStudentId = student.id;
+  elements.recordsClassFilter.value = classId;
+  syncStudentOptions(elements.recordsClassFilter, elements.recordsStudentFilter, student.id);
+  switchView("records");
+  renderRecordsView();
+}
+
+function tactileFeedback(type = "tap") {
+  const pattern = type === "success" ? 18 : type === "warning" ? [12, 24, 12] : 10;
+  if (navigator.vibrate) navigator.vibrate(pattern);
+  playFeedbackTone(type);
+}
+
+function playFeedbackTone(type = "tap") {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    feedbackAudioContext ||= new AudioContext();
+    const ctx = feedbackAudioContext;
+    if (ctx.state === "suspended") ctx.resume();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    oscillator.type = "sine";
+    oscillator.frequency.value = type === "success" ? 740 : type === "warning" ? 420 : 560;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.025, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.09);
+  } catch {
+    // Audio feedback is optional; haptics and visual toast still work.
+  }
+}
+
+function showToast(message) {
+  if (!elements.appToast) return;
+  elements.appToast.textContent = message;
+  elements.appToast.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => elements.appToast.classList.add("hidden"), 1500);
+}
+
 function openStudentDialog(studentId = "") {
   populateClassOptions();
   if (studentId) {
@@ -727,6 +817,7 @@ function openStudentDialog(studentId = "") {
     elements.studentIdInput.value = student.id;
     elements.studentNameInput.value = student.name;
     elements.studentClassInput.value = student.classId;
+    elements.studentPackageInput.value = student.packageTotal || "";
     elements.studentNoteInput.value = student.note || "";
     elements.deleteStudentButton.classList.remove("hidden");
   } else {
@@ -745,6 +836,7 @@ function saveStudent(event) {
     id: id || crypto.randomUUID(),
     name: elements.studentNameInput.value.trim(),
     classId: elements.studentClassInput.value,
+    packageTotal: Number(elements.studentPackageInput.value) > 0 ? Number(elements.studentPackageInput.value) : "",
     note: elements.studentNoteInput.value.trim(),
     active: true,
     createdAt: id ? state.students.find((item) => item.id === id)?.createdAt || new Date().toISOString() : new Date().toISOString(),
@@ -1175,12 +1267,18 @@ function parseCsvLine(line) {
 
 function downloadFile(filename, content, type) {
   const blob = new Blob([content], { type });
+  downloadBlob(filename, blob);
+}
+
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function setupInstallPrompt() {
@@ -1440,6 +1538,110 @@ function buildPresentLessonNumbers(studentId) {
       numbers.set(record.date, count);
     });
   return numbers;
+}
+
+function getStudentPackageProgress(studentId) {
+  const student = state.students.find((item) => item.id === studentId);
+  const total = Number(student?.packageTotal) || 0;
+  const presentNumbers = buildPresentLessonNumbers(studentId);
+  const current = state.attendance
+    .filter((record) => record.studentId === studentId && record.status === "present")
+    .reduce((max, record) => {
+      const manual = Number(record.lessonNumber);
+      const auto = presentNumbers.get(record.date) || 0;
+      return Math.max(max, Number.isFinite(manual) && manual > 0 ? manual : auto);
+    }, 0);
+  return { current, total };
+}
+
+async function saveStudentSheetImage(studentId, startDate, endDate) {
+  const student = state.students.find((item) => item.id === studentId);
+  if (!student) return;
+  const blob = await createStudentSheetImageBlob(student, startDate, endDate);
+  if (!blob) {
+    showToast("图片生成失败，请再试一次");
+    return;
+  }
+  const filename = `${student.name}-课时明细-${startDate}-${endDate}.png`;
+  const file = new File([blob], filename, { type: "image/png" });
+  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+    try {
+      await navigator.share({ files: [file], title: `${student.name}课时明细` });
+      showToast("已打开保存/分享");
+      return;
+    } catch {
+      // Fall back to download when the share sheet is cancelled or unavailable.
+    }
+  }
+  downloadBlob(filename, blob);
+  showToast("已生成表格图片");
+}
+
+function createStudentSheetImageBlob(student, startDate, endDate) {
+  const classItem = getClassById(student.classId);
+  const scheduledDates = getScheduledDatesBetween(startDate, endDate, classItem?.dates || []);
+  const recordedDates = state.attendance
+    .filter((record) => record.studentId === student.id && record.date >= startDate && record.date <= endDate)
+    .map((record) => record.date);
+  const dates = [...new Set([...scheduledDates, ...recordedDates])].sort();
+  const presentNumbers = buildPresentLessonNumbers(student.id);
+  const columns = [190, 160, 550];
+  const rowHeight = 72;
+  const headerHeight = 78;
+  const width = columns.reduce((sum, value) => sum + value, 0);
+  const height = headerHeight + Math.max(dates.length, 1) * rowHeight;
+  const canvas = document.createElement("canvas");
+  const scale = 2;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  drawSheetCell(ctx, 0, 0, columns[0], headerHeight, "日期", { fill: "#d6dce2", bold: true, size: 34 });
+  drawSheetCell(ctx, columns[0], 0, columns[1], headerHeight, "星期", { fill: "#d6dce2", bold: true, size: 34 });
+  drawSheetCell(ctx, columns[0] + columns[1], 0, columns[2], headerHeight, student.name, { fill: "#d6dce2", bold: true, size: 34 });
+  ctx.fillStyle = "#16a34a";
+  ctx.fillRect(columns[0] + columns[1] - 2, 0, 4, height);
+
+  const rows = dates.length ? dates : [""];
+  rows.forEach((date, index) => {
+    const y = headerHeight + index * rowHeight;
+    const record = date ? getAttendance(student.id, date) : null;
+    const isAbsent = record?.status === "absent";
+    const isPresent = record?.status === "present";
+    const value = isPresent
+      ? String(record?.lessonNumber || presentNumbers.get(date) || "")
+      : isAbsent
+        ? record.reason || "请假"
+        : date ? "待补录" : "暂无记录";
+    drawSheetCell(ctx, 0, y, columns[0], rowHeight, date ? formatShortDate(date) : "", { fill: "#eef0f3", bold: true, size: 30 });
+    drawSheetCell(ctx, columns[0], y, columns[1], rowHeight, date ? shortWeekday(date) : "", { size: 30 });
+    drawSheetCell(ctx, columns[0] + columns[1], y, columns[2], rowHeight, value, {
+      fill: isAbsent ? "#e6a3a6" : "#ffffff",
+      color: isAbsent ? "#7f1d1d" : isPresent ? "#111827" : "#9aa3ae",
+      bold: true,
+      size: isAbsent ? 28 : 30,
+    });
+  });
+
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
+}
+
+function drawSheetCell(ctx, x, y, width, height, text, options = {}) {
+  ctx.fillStyle = options.fill || "#ffffff";
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeStyle = "rgba(15, 23, 42, 0.24)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, width, height);
+  ctx.fillStyle = options.color || "#111827";
+  ctx.font = `${options.bold ? 800 : 500} ${options.size || 28}px "PingFang SC", "Noto Sans SC", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(text || ""), x + width / 2, y + height / 2, width - 20);
 }
 
 function buildParentMessage(student, row, scope) {
