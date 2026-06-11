@@ -80,7 +80,7 @@ const elements = {
   reportStartMonthInput: document.querySelector("#reportStartMonthInput"),
   reportEndMonthInput: document.querySelector("#reportEndMonthInput"),
   monthlySummaryCards: document.querySelector("#monthlySummaryCards"),
-  monthlyTableBody: document.querySelector("#monthlyTableBody"),
+  monthlyReportList: document.querySelector("#monthlyReportList"),
   exportMonthlyCsvButton: document.querySelector("#exportMonthlyCsvButton"),
   exportJsonButton: document.querySelector("#exportJsonButton"),
   importJsonInput: document.querySelector("#importJsonInput"),
@@ -527,16 +527,36 @@ function renderReportsView() {
     <div class="summary-card"><span>待补录</span><strong>${totals.pending}</strong></div>
   `;
 
-  elements.monthlyTableBody.innerHTML = reportRows.map((row) => `
-    <tr>
-      <td>${escapeHtml(row.className)}</td>
-      <td>${escapeHtml(row.studentName)}</td>
-      <td>${row.scheduled}</td>
-      <td>${row.present}</td>
-      <td>${row.absent}</td>
-      <td>${row.pending}</td>
-    </tr>
-  `).join("");
+  elements.monthlyReportList.innerHTML = reportRows.length
+    ? reportRows.map(buildMonthlyReportCard).join("")
+    : `<div class="empty-state detail-card"><p>当前筛选范围内没有统计数据。</p></div>`;
+}
+
+function buildMonthlyReportCard(row) {
+  const completion = row.scheduled ? Math.min(100, Math.round((row.present / row.scheduled) * 100)) : 0;
+  return `
+    <article class="report-card">
+      <div class="report-card-top">
+        <div>
+          <h3>${escapeHtml(row.studentName)}</h3>
+          <p>${escapeHtml(row.className)}</p>
+        </div>
+        <div class="report-hours">
+          <strong>${row.present}</strong>
+          <span>课时</span>
+        </div>
+      </div>
+      <div class="report-progress" aria-label="出勤进度 ${completion}%">
+        <span style="width:${completion}%"></span>
+      </div>
+      <div class="report-stats">
+        <span>出勤: <strong class="present">${row.present}</strong></span>
+        <span>未出勤: <strong class="absent">${row.absent}</strong></span>
+        <span>未打卡: <strong class="pending">${row.pending}</strong></span>
+        <span>总计: <strong>${row.scheduled}</strong></span>
+      </div>
+    </article>
+  `;
 }
 
 function bindRecordsInteractions() {

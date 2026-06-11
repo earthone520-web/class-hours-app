@@ -670,6 +670,103 @@ h2 {
   color: var(--muted);
 }
 
+.report-card-list {
+  display: grid;
+  gap: 14px;
+}
+
+.report-card {
+  display: grid;
+  gap: 13px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(31, 41, 55, 0.07);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.045);
+}
+
+.report-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.report-card h3 {
+  font-size: 22px;
+  line-height: 1.15;
+  font-weight: 850;
+}
+
+.report-card p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.report-hours {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.report-hours strong {
+  color: var(--brand-strong);
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 850;
+}
+
+.report-hours span {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.report-progress {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  overflow: hidden;
+}
+
+.report-progress span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--brand-strong);
+}
+
+.report-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.report-stats strong {
+  color: var(--text);
+  font-weight: 850;
+}
+
+.report-stats .present {
+  color: var(--present);
+}
+
+.report-stats .absent {
+  color: var(--absent);
+}
+
+.report-stats .pending {
+  color: #ea7b22;
+}
+
 .filter-caption {
   color: var(--muted);
   font-size: 13px;
@@ -1374,6 +1471,43 @@ tbody tr:hover {
     margin-top: 2px;
     font-size: 21px;
     line-height: 1;
+  }
+
+  .report-card-list {
+    gap: 12px;
+  }
+
+  .report-card {
+    gap: 11px;
+    padding: 16px 18px;
+    border-radius: 14px;
+    box-shadow: 0 2px 9px rgba(15, 23, 42, 0.04);
+  }
+
+  .report-card h3 {
+    font-size: 20px;
+  }
+
+  .report-card p {
+    margin-top: 4px;
+    font-size: 13px;
+  }
+
+  .report-hours strong {
+    font-size: 31px;
+  }
+
+  .report-hours span,
+  .report-stats {
+    font-size: 13px;
+  }
+
+  .report-progress {
+    height: 7px;
+  }
+
+  .report-stats {
+    gap: 8px;
   }
 
   .student-list {
