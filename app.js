@@ -15,6 +15,7 @@ const initialData = {
   ],
   students: [],
   attendance: [],
+  cellStyles: [],
 };
 
 [
@@ -31,6 +32,8 @@ const initialData = {
       classId: targetClass.id,
       name,
       note: "",
+      packageTotal: "",
+      lessonTotal: 0,
       active: true,
       createdAt: new Date().toISOString(),
     });
@@ -46,6 +49,7 @@ const classCalendarMonths = {};
 let recordsViewMode = "calendar";
 let feedbackAudioContext = null;
 let pendingTodayRecordOpen = null;
+let pendingClassDateToggle = null;
 let toastTimer = null;
 
 const elements = {
@@ -89,6 +93,7 @@ const elements = {
   studentNameInput: document.querySelector("#studentNameInput"),
   studentClassInput: document.querySelector("#studentClassInput"),
   studentPackageInput: document.querySelector("#studentPackageInput"),
+  studentLessonTotalInput: document.querySelector("#studentLessonTotalInput"),
   studentNoteInput: document.querySelector("#studentNoteInput"),
   deleteStudentButton: document.querySelector("#deleteStudentButton"),
   closeStudentDialogButton: document.querySelector("#closeStudentDialogButton"),
@@ -140,7 +145,9 @@ function bindEvents() {
 
   elements.resetTodayButton.addEventListener("click", () => {
     const date = attendanceDate();
-    state.attendance = state.attendance.filter((record) => record.date !== date);
+    state.attendance
+      .filter((record) => record.date === date)
+      .forEach((record) => clearAttendance(record.studentId, record.date));
     persistAndRender();
   });
 
@@ -259,7 +266,7 @@ function renderStudentsView() {
     });
   });
   [...elements.classSummary.querySelectorAll("[data-toggle-class-date]")].forEach((button) => {
-    button.addEventListener("click", () => toggleClassDate(button.dataset.toggleClassDate, button.dataset.date));
+    button.addEventListener("click", () => handleClassDateToggle(button.dataset.toggleClassDate, button.dataset.date, button));
   });
 
   const filteredStudents = state.students
@@ -283,7 +290,7 @@ function renderStudentsView() {
         <div class="avatar" style="${avatarStyleForStudent(student)}">${getInitial(student.name)}</div>
         <div>
           <h3>${escapeHtml(student.name)}</h3>
-          <p class="student-meta">${escapeHtml(getClassById(student.classId)?.name || "未分班")} · ${escapeHtml(student.note || "点击查看记录")}</p>
+          <p class="student-meta">${escapeHtml(getClassById(student.classId)?.name || "未分班")} · 累计${getStudentLessonTotal(student.id)}课${student.note ? ` · ${escapeHtml(student.note)}` : ""}</p>
         </div>
       </button>
       <div class="toolbar">
@@ -324,8 +331,12 @@ function renderRecordsView() {
   `;
 
   const packageProgress = selectedStudent ? getStudentPackageProgress(selectedStudent.id) : null;
+  const lessonTotal = selectedStudent ? getStudentLessonTotal(selectedStudent.id) : 0;
   const packageLine = selectedStudent && selectedStudent.packageTotal
     ? `<p class="package-progress ${packageProgress.current >= packageProgress.total ? "due" : ""}">课包：已上 ${packageProgress.current} / ${packageProgress.total}${packageProgress.current >= packageProgress.total ? " · 需续费" : ""}</p>`
+    : "";
+  const lessonLine = selectedStudent
+    ? `<p class="package-progress lesson-total">累计课时：${lessonTotal}</p>`
     : "";
   const header = selectedStudent
     ? `
@@ -334,6 +345,7 @@ function renderRecordsView() {
         <div>
           <h3>${escapeHtml(selectedStudent.name)}</h3>
           <p class="student-meta">${escapeHtml(getClassById(selectedStudent.classId)?.name || "未分班")} · ${escapeHtml(selectedStudent.note || "无备注")}</p>
+          ${lessonLine}
           ${packageLine}
         </div>
       </div>
@@ -387,6 +399,7 @@ function renderRecordsView() {
     ? `
     <div class="view-pane ${recordsViewMode === "table" ? "active" : ""}" data-record-pane="table">
       <div class="sheet-actions">
+        <span class="sheet-total-badge">累计课时 ${lessonTotal}</span>
         <button class="ghost-button small" type="button" data-save-sheet-image="${selectedStudent.id}">保存表格图片</button>
       </div>
       ${buildStudentSpreadsheetTable(selectedStudent, scope.startDate, scope.endDate)}
@@ -581,13 +594,28 @@ function bindRecordsInteractions() {
       const record = getAttendance(studentId, date);
       if (record?.status === "present") {
         const value = input.value.trim();
-        if (value) record.lessonNumber = value;
-        else delete record.lessonNumber;
+        if (value) {
+          record.lessonNumber = value;
+          const number = Number(value);
+          if (Number.isFinite(number) && number > getStudentLessonTotal(studentId)) {
+            setStudentLessonTotal(studentId, number);
+            updateDisplayedLessonTotal(studentId);
+          }
+        } else delete record.lessonNumber;
         record.updatedAt = new Date().toISOString();
         persistState();
         renderTodayView();
         renderReportsView();
       }
+    });
+  });
+
+  document.querySelectorAll("[data-sheet-color]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      tactileFeedback("tap");
+      toggleSheetCellBlue(button.dataset.sheetColor, button.dataset.date);
+      persistAndRender();
     });
   });
 
@@ -614,7 +642,7 @@ function bindRecordsInteractions() {
 
 function setAttendanceFromTable(studentId, date, status) {
   if (!status) {
-    state.attendance = state.attendance.filter((record) => !(record.studentId === studentId && record.date === date));
+    clearAttendance(studentId, date);
   } else {
     const existing = getAttendance(studentId, date);
     const reason = status === "absent" ? existing?.reason || "请假" : "";
@@ -630,7 +658,7 @@ function cycleAttendance(studentId, date) {
   } else if (record.status === "present") {
     upsertAttendance(studentId, date, "absent", "请假");
   } else {
-    state.attendance = state.attendance.filter((item) => !(item.studentId === studentId && item.date === date));
+    clearAttendance(studentId, date);
   }
 }
 
@@ -818,6 +846,7 @@ function openStudentDialog(studentId = "") {
     elements.studentNameInput.value = student.name;
     elements.studentClassInput.value = student.classId;
     elements.studentPackageInput.value = student.packageTotal || "";
+    elements.studentLessonTotalInput.value = getStudentLessonTotal(student.id) || "";
     elements.studentNoteInput.value = student.note || "";
     elements.deleteStudentButton.classList.remove("hidden");
   } else {
@@ -837,6 +866,7 @@ function saveStudent(event) {
     name: elements.studentNameInput.value.trim(),
     classId: elements.studentClassInput.value,
     packageTotal: Number(elements.studentPackageInput.value) > 0 ? Number(elements.studentPackageInput.value) : "",
+    lessonTotal: Number(elements.studentLessonTotalInput.value) >= 0 ? Number(elements.studentLessonTotalInput.value) : 0,
     note: elements.studentNoteInput.value.trim(),
     active: true,
     createdAt: id ? state.students.find((item) => item.id === id)?.createdAt || new Date().toISOString() : new Date().toISOString(),
@@ -926,7 +956,7 @@ function renderEditingClassCalendar() {
   elements.classScheduleCalendar.innerHTML = buildClassScheduleCalendar(pseudoClass, editingClassCalendarMonth, "dialog", false);
   elements.classScheduleCalendar.querySelectorAll("[data-dialog-date]").forEach((button) => {
     button.addEventListener("click", () => {
-      toggleEditingClassDate(button.dataset.dialogDate);
+      handleEditingClassDateToggle(button.dataset.dialogDate, button);
     });
   });
 }
@@ -957,6 +987,13 @@ function toggleEditingClassDate(date) {
     editingClassDates.sort();
   }
   renderEditingClassScheduleTools();
+}
+
+function handleEditingClassDateToggle(date, button) {
+  const isActive = editingClassDates.includes(date);
+  const action = isActive ? "取消" : "点亮";
+  if (!confirmDateToggle(`dialog:${date}`, button, `再点一次${action} ${formatShortDate(date)}`)) return;
+  toggleEditingClassDate(date);
 }
 
 function shiftEditingClassMonth(delta) {
@@ -1009,14 +1046,38 @@ function isValidStateData(data) {
 }
 
 function migrateState(data) {
+  const attendance = (data.attendance || []).map((record) => ({ ...record }));
   return {
     classes: data.classes.map((classItem) => ({
       ...classItem,
       dates: normalizeClassDates(classItem),
     })),
-    students: data.students,
-    attendance: data.attendance,
+    students: data.students.map((student) => ({
+      ...student,
+      packageTotal: normalizeOptionalNumber(student.packageTotal),
+      lessonTotal: normalizeStudentLessonTotal(student, attendance),
+    })),
+    attendance,
+    cellStyles: Array.isArray(data.cellStyles)
+      ? data.cellStyles.filter((item) => item && item.studentId && isIsoDate(item.date) && item.color === "blue")
+      : [],
   };
+}
+
+function normalizeOptionalNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : "";
+}
+
+function normalizeStudentLessonTotal(student, attendance) {
+  const stored = Number(student.lessonTotal);
+  if (Number.isFinite(stored) && stored >= 0) return stored;
+  const presentRecords = attendance.filter((record) => record.studentId === student.id && record.status === "present");
+  const manualMax = presentRecords.reduce((max, record) => {
+    const number = Number(record.lessonNumber);
+    return Number.isFinite(number) && number > 0 ? Math.max(max, number) : max;
+  }, 0);
+  return manualMax || presentRecords.length || 0;
 }
 
 function normalizeClassDates(classItem) {
@@ -1073,6 +1134,7 @@ async function restoreStableBackupIfNeeded() {
   state.classes = migrated.classes;
   state.students = migrated.students;
   state.attendance = migrated.attendance;
+  state.cellStyles = migrated.cellStyles;
   selectedStudentId = null;
   persistState();
   renderAll();
@@ -1128,28 +1190,88 @@ function waitForTransaction(tx) {
 
 function upsertAttendance(studentId, date, status, reason) {
   const existing = state.attendance.find((record) => record.studentId === studentId && record.date === date);
+  const previousStatus = existing?.status || "";
   if (existing) {
+    adjustStudentLessonTotalForTransition(studentId, previousStatus, status);
     existing.status = status;
     existing.reason = status === "absent" ? reason : "";
+    if (status === "present" && previousStatus !== "present") {
+      existing.lessonNumber = String(getStudentLessonTotal(studentId));
+    }
+    if (status !== "present") {
+      delete existing.lessonNumber;
+    }
     existing.updatedAt = new Date().toISOString();
     return;
   }
+  adjustStudentLessonTotalForTransition(studentId, "", status);
   state.attendance.push({
     id: crypto.randomUUID(),
     studentId,
     date,
     status,
     reason: status === "absent" ? reason : "",
+    ...(status === "present" ? { lessonNumber: String(getStudentLessonTotal(studentId)) } : {}),
     updatedAt: new Date().toISOString(),
   });
 }
 
 function clearAttendance(studentId, date) {
+  const existing = getAttendance(studentId, date);
+  if (existing) adjustStudentLessonTotalForTransition(studentId, existing.status, "");
   state.attendance = state.attendance.filter((record) => !(record.studentId === studentId && record.date === date));
 }
 
 function getAttendance(studentId, date) {
   return state.attendance.find((record) => record.studentId === studentId && record.date === date);
+}
+
+function getStudentLessonTotal(studentId) {
+  const student = state.students.find((item) => item.id === studentId);
+  return Math.max(0, Number(student?.lessonTotal) || 0);
+}
+
+function setStudentLessonTotal(studentId, value) {
+  const student = state.students.find((item) => item.id === studentId);
+  if (!student) return;
+  const number = Number(value);
+  student.lessonTotal = Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function adjustStudentLessonTotalForTransition(studentId, previousStatus, nextStatus) {
+  if (previousStatus === nextStatus) return;
+  if (previousStatus !== "present" && nextStatus === "present") {
+    setStudentLessonTotal(studentId, getStudentLessonTotal(studentId) + 1);
+  } else if (previousStatus === "present" && nextStatus !== "present") {
+    setStudentLessonTotal(studentId, Math.max(0, getStudentLessonTotal(studentId) - 1));
+  }
+}
+
+function getSheetCellColor(studentId, date) {
+  return (state.cellStyles || []).find((style) => style.studentId === studentId && style.date === date)?.color || "";
+}
+
+function toggleSheetCellBlue(studentId, date) {
+  if (!Array.isArray(state.cellStyles)) state.cellStyles = [];
+  const index = state.cellStyles.findIndex((style) => style.studentId === studentId && style.date === date);
+  if (index >= 0) {
+    state.cellStyles.splice(index, 1);
+    showToast("已取消浅蓝底色");
+  } else {
+    state.cellStyles.push({ studentId, date, color: "blue" });
+    showToast("已设为浅蓝底色");
+  }
+}
+
+function updateDisplayedLessonTotal(studentId) {
+  if (selectedStudentId && selectedStudentId !== studentId) return;
+  const total = getStudentLessonTotal(studentId);
+  document.querySelectorAll(".package-progress.lesson-total").forEach((item) => {
+    item.textContent = `累计课时：${total}`;
+  });
+  document.querySelectorAll(".sheet-total-badge").forEach((item) => {
+    item.textContent = `累计课时 ${total}`;
+  });
 }
 
 function getStudentsForAttendanceDate() {
@@ -1489,7 +1611,10 @@ function buildStudentSpreadsheetTable(student, startDate, endDate) {
   const recordedDates = state.attendance
     .filter((record) => record.studentId === student.id && record.date >= startDate && record.date <= endDate)
     .map((record) => record.date);
-  const dates = [...new Set([...scheduledDates, ...recordedDates])].sort();
+  const styledDates = (state.cellStyles || [])
+    .filter((style) => style.studentId === student.id && style.date >= startDate && style.date <= endDate)
+    .map((style) => style.date);
+  const dates = [...new Set([...scheduledDates, ...recordedDates, ...styledDates])].sort();
   const presentNumbers = buildPresentLessonNumbers(student.id);
 
   return `
@@ -1507,12 +1632,14 @@ function buildStudentSpreadsheetTable(student, startDate, endDate) {
             const record = getAttendance(student.id, date);
             const isAbsent = record?.status === "absent";
             const isPresent = record?.status === "present";
+            const isBlue = getSheetCellColor(student.id, date) === "blue";
             const value = isPresent ? String(record?.lessonNumber || presentNumbers.get(date) || "") : isAbsent ? record.reason || "请假" : "";
             return `
               <tr>
                 <td class="date-col">${escapeHtml(formatShortDate(date))}</td>
                 <td>${escapeHtml(shortWeekday(date))}</td>
-                <td class="student-sheet-cell ${isAbsent ? "absent" : isPresent ? "present" : "pending"}" data-sheet-status="${student.id}" data-date="${date}">
+                <td class="student-sheet-cell ${isAbsent ? "absent" : isPresent ? "present" : "pending"} ${isBlue ? "blue-highlight" : ""}" data-sheet-status="${student.id}" data-date="${date}">
+                  <button class="sheet-color-toggle ${isBlue ? "active" : ""}" type="button" data-sheet-color="${student.id}" data-date="${date}" aria-label="切换浅蓝底色">蓝</button>
                   ${isPresent
                     ? `<input class="sheet-lesson-input" type="text" inputmode="numeric" value="${escapeAttribute(value)}" data-sheet-lesson="${student.id}" data-date="${date}" aria-label="课次数字">`
                     : `<span class="sheet-status-label">${escapeHtml(value || "待补录")}</span>`}
@@ -1544,13 +1671,14 @@ function getStudentPackageProgress(studentId) {
   const student = state.students.find((item) => item.id === studentId);
   const total = Number(student?.packageTotal) || 0;
   const presentNumbers = buildPresentLessonNumbers(studentId);
-  const current = state.attendance
+  const inferredCurrent = state.attendance
     .filter((record) => record.studentId === studentId && record.status === "present")
     .reduce((max, record) => {
       const manual = Number(record.lessonNumber);
       const auto = presentNumbers.get(record.date) || 0;
       return Math.max(max, Number.isFinite(manual) && manual > 0 ? manual : auto);
     }, 0);
+  const current = Math.max(getStudentLessonTotal(studentId), inferredCurrent);
   return { current, total };
 }
 
@@ -1583,7 +1711,10 @@ function createStudentSheetImageBlob(student, startDate, endDate) {
   const recordedDates = state.attendance
     .filter((record) => record.studentId === student.id && record.date >= startDate && record.date <= endDate)
     .map((record) => record.date);
-  const dates = [...new Set([...scheduledDates, ...recordedDates])].sort();
+  const styledDates = (state.cellStyles || [])
+    .filter((style) => style.studentId === student.id && style.date >= startDate && style.date <= endDate)
+    .map((style) => style.date);
+  const dates = [...new Set([...scheduledDates, ...recordedDates, ...styledDates])].sort();
   const presentNumbers = buildPresentLessonNumbers(student.id);
   const columns = [190, 160, 550];
   const rowHeight = 72;
@@ -1613,6 +1744,7 @@ function createStudentSheetImageBlob(student, startDate, endDate) {
     const record = date ? getAttendance(student.id, date) : null;
     const isAbsent = record?.status === "absent";
     const isPresent = record?.status === "present";
+    const isBlue = date ? getSheetCellColor(student.id, date) === "blue" : false;
     const value = isPresent
       ? String(record?.lessonNumber || presentNumbers.get(date) || "")
       : isAbsent
@@ -1621,8 +1753,8 @@ function createStudentSheetImageBlob(student, startDate, endDate) {
     drawSheetCell(ctx, 0, y, columns[0], rowHeight, date ? formatShortDate(date) : "", { fill: "#eef0f3", bold: true, size: 30 });
     drawSheetCell(ctx, columns[0], y, columns[1], rowHeight, date ? shortWeekday(date) : "", { size: 30 });
     drawSheetCell(ctx, columns[0] + columns[1], y, columns[2], rowHeight, value, {
-      fill: isAbsent ? "#e6a3a6" : "#ffffff",
-      color: isAbsent ? "#7f1d1d" : isPresent ? "#111827" : "#9aa3ae",
+      fill: isBlue ? "#dbeafe" : isAbsent ? "#e6a3a6" : "#ffffff",
+      color: isBlue ? "#1e3a8a" : isAbsent ? "#7f1d1d" : isPresent ? "#111827" : "#9aa3ae",
       bold: true,
       size: isAbsent ? 28 : 30,
     });
@@ -1757,6 +1889,33 @@ function toggleClassDate(classId, date) {
   else dates.add(date);
   classItem.dates = [...dates].sort();
   persistAndRender();
+}
+
+function handleClassDateToggle(classId, date, button) {
+  const classItem = getClassById(classId);
+  if (!classItem) return;
+  const isActive = (classItem.dates || []).includes(date);
+  const action = isActive ? "取消" : "点亮";
+  if (!confirmDateToggle(`class:${classId}:${date}`, button, `再点一次${action} ${formatShortDate(date)}`)) return;
+  toggleClassDate(classId, date);
+}
+
+function confirmDateToggle(key, button, message) {
+  const now = Date.now();
+  const isConfirmed = pendingClassDateToggle?.key === key && now - pendingClassDateToggle.time < 1600;
+  tactileFeedback(isConfirmed ? "success" : "tap");
+  if (isConfirmed) {
+    pendingClassDateToggle = null;
+    if (button) button.classList.remove("awaiting-toggle");
+    return true;
+  }
+  pendingClassDateToggle = { key, time: now };
+  if (button) {
+    button.classList.add("awaiting-toggle");
+    setTimeout(() => button.classList.remove("awaiting-toggle"), 1600);
+  }
+  showToast(message);
+  return false;
 }
 
 function getClassCalendarMonth(classId) {
