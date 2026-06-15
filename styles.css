@@ -376,6 +376,41 @@ h2 {
   background: transparent;
 }
 
+.directory-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  box-shadow: 0 3px 12px rgba(31, 41, 55, 0.045);
+}
+
+.directory-card .student-main {
+  min-width: 0;
+}
+
+.directory-card .avatar {
+  width: 54px;
+  height: 54px;
+  font-size: 22px;
+}
+
+.directory-card h3 {
+  font-size: 22px;
+  line-height: 1.12;
+}
+
+.directory-card .student-meta {
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.edit-student-button {
+  justify-self: end;
+  padding: 8px 14px;
+  border-radius: 999px;
+}
+
 .attendance-card .student-main {
   align-items: flex-start;
 }
@@ -870,16 +905,17 @@ tbody tr:hover {
 
 .sheet-color-toggle {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: 7px;
+  right: 7px;
   z-index: 2;
-  width: 14px;
-  height: 14px;
+  width: 11px;
+  height: 11px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(127, 29, 29, 0.2);
-  background: rgba(232, 168, 168, 0.7);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(127, 29, 29, 0.18);
+  background: rgba(232, 168, 168, 0.45);
+  box-shadow: none;
+  opacity: 0.72;
 }
 
 .sheet-color-toggle.active {
@@ -892,8 +928,8 @@ tbody tr:hover {
   display: grid;
   place-items: center;
   width: 100%;
-  min-height: 34px;
-  padding: 5px 22px 5px 8px;
+  min-height: 31px;
+  padding: 4px 20px 4px 8px;
   background: transparent;
   border: 0;
   color: #111827;
@@ -919,21 +955,21 @@ tbody tr:hover {
 }
 
 .sheet-reason-input {
-  width: calc(100% - 18px);
-  min-height: 34px;
-  margin: 4px 9px;
-  padding: 5px 22px 5px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(187, 77, 72, 0.34);
-  background: rgba(255, 255, 255, 0.55);
+  width: 100%;
+  min-height: 31px;
+  margin: 0;
+  padding: 4px 20px 4px 8px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   text-align: center;
   color: #7f1d1d;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .sheet-reason-input.compact-reason {
-  margin: 5px 9px;
+  margin: 0;
 }
 
 .table-status-select, .table-reason-input {
@@ -1225,6 +1261,17 @@ tbody tr:hover {
   color: #fff;
   font-size: 11px;
   font-style: normal;
+}
+
+.calendar-day .today-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
 }
 
 .calendar-day span {
@@ -1520,6 +1567,35 @@ tbody tr:hover {
     border-radius: 14px;
   }
 
+  .directory-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 13px 14px;
+    gap: 8px;
+  }
+
+  .directory-card .student-main {
+    gap: 10px;
+  }
+
+  .directory-card .avatar {
+    width: 46px;
+    height: 46px;
+    font-size: 20px;
+  }
+
+  .directory-card h3 {
+    font-size: 20px;
+  }
+
+  .directory-card .student-meta {
+    font-size: 12px;
+  }
+
+  .edit-student-button {
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+
   .attendance-card {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
@@ -1683,6 +1759,10 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .compact .student-card.directory-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .segmented-control {
     width: 100%;
     max-width: 320px;
@@ -1707,7 +1787,7 @@ tbody tr:hover {
 
   .sheet-table th,
   .sheet-table td {
-    padding: 4px 3px;
+    padding: 3px 3px;
     font-size: 15px;
   }
 
@@ -1733,17 +1813,17 @@ tbody tr:hover {
 
   .sheet-status-label,
   .sheet-lesson-input {
-    min-height: 30px;
-    padding: 4px 20px 4px 6px;
+    min-height: 28px;
+    padding: 3px 18px 3px 6px;
     font-size: 16px;
   }
 
   .sheet-reason-input {
-    width: calc(100% - 16px);
-    min-height: 30px;
-    margin: 4px 8px;
-    padding: 4px 20px 4px 6px;
-    border-radius: 999px;
+    width: 100%;
+    min-height: 28px;
+    margin: 0;
+    padding: 3px 18px 3px 6px;
+    border-radius: 0;
     font-size: 14px;
   }
 

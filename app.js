@@ -93,8 +93,6 @@ const elements = {
   studentIdInput: document.querySelector("#studentIdInput"),
   studentNameInput: document.querySelector("#studentNameInput"),
   studentClassInput: document.querySelector("#studentClassInput"),
-  studentPackageInput: document.querySelector("#studentPackageInput"),
-  studentLessonTotalInput: document.querySelector("#studentLessonTotalInput"),
   studentNoteInput: document.querySelector("#studentNoteInput"),
   deleteStudentButton: document.querySelector("#deleteStudentButton"),
   closeStudentDialogButton: document.querySelector("#closeStudentDialogButton"),
@@ -285,7 +283,7 @@ function renderStudentsView() {
   elements.studentDirectory.innerHTML = "";
   filteredStudents.forEach((student) => {
     const card = document.createElement("article");
-    card.className = "student-card";
+    card.className = "student-card directory-card";
     card.innerHTML = `
       <button class="student-main" type="button" data-open-records="${student.id}">
         <div class="avatar" style="${avatarStyleForStudent(student)}">${getInitial(student.name)}</div>
@@ -294,9 +292,7 @@ function renderStudentsView() {
           <p class="student-meta">${escapeHtml(getClassById(student.classId)?.name || "未分班")} · 累计${getStudentLessonTotal(student.id)}课${student.note ? ` · ${escapeHtml(student.note)}` : ""}</p>
         </div>
       </button>
-      <div class="toolbar">
-        <button class="ghost-button small" type="button" data-edit-student="${student.id}">编辑</button>
-      </div>
+      <button class="ghost-button small edit-student-button" type="button" data-edit-student="${student.id}">编辑</button>
     `;
     card.querySelector("[data-open-records]").addEventListener("click", () => {
       const classId = getClassById(student.classId)?.id || "";
@@ -331,11 +327,7 @@ function renderRecordsView() {
     <div class="summary-card"><span>待补录</span><strong>${summary.pending}</strong></div>
   `;
 
-  const packageProgress = selectedStudent ? getStudentPackageProgress(selectedStudent.id) : null;
   const lessonTotal = selectedStudent ? getStudentLessonTotal(selectedStudent.id) : 0;
-  const packageLine = selectedStudent && selectedStudent.packageTotal
-    ? `<p class="package-progress ${packageProgress.current >= packageProgress.total ? "due" : ""}">课包：已上 ${packageProgress.current} / ${packageProgress.total}${packageProgress.current >= packageProgress.total ? " · 需续费" : ""}</p>`
-    : "";
   const lessonLine = selectedStudent
     ? `<p class="package-progress lesson-total">累计课时：${lessonTotal}</p>`
     : "";
@@ -347,7 +339,6 @@ function renderRecordsView() {
           <h3>${escapeHtml(selectedStudent.name)}</h3>
           <p class="student-meta">${escapeHtml(getClassById(selectedStudent.classId)?.name || "未分班")} · ${escapeHtml(selectedStudent.note || "无备注")}</p>
           ${lessonLine}
-          ${packageLine}
         </div>
       </div>
     `
@@ -618,10 +609,7 @@ function bindRecordsInteractions() {
         if (value) {
           record.lessonNumber = value;
           const number = Number(value);
-          if (Number.isFinite(number) && number > getStudentLessonTotal(studentId)) {
-            setStudentLessonTotal(studentId, number);
-            updateDisplayedLessonTotal(studentId);
-          }
+          if (Number.isFinite(number)) autoFillLessonNumbersFrom(studentId, date, number);
         } else delete record.lessonNumber;
         record.updatedAt = new Date().toISOString();
         persistState();
@@ -866,8 +854,6 @@ function openStudentDialog(studentId = "") {
     elements.studentIdInput.value = student.id;
     elements.studentNameInput.value = student.name;
     elements.studentClassInput.value = student.classId;
-    elements.studentPackageInput.value = student.packageTotal || "";
-    elements.studentLessonTotalInput.value = getStudentLessonTotal(student.id) || "";
     elements.studentNoteInput.value = student.note || "";
     elements.deleteStudentButton.classList.remove("hidden");
   } else {
@@ -882,15 +868,16 @@ function openStudentDialog(studentId = "") {
 function saveStudent(event) {
   event.preventDefault();
   const id = elements.studentIdInput.value;
+  const existingStudent = id ? state.students.find((item) => item.id === id) : null;
   const payload = {
     id: id || crypto.randomUUID(),
     name: elements.studentNameInput.value.trim(),
     classId: elements.studentClassInput.value,
-    packageTotal: Number(elements.studentPackageInput.value) > 0 ? Number(elements.studentPackageInput.value) : "",
-    lessonTotal: Number(elements.studentLessonTotalInput.value) >= 0 ? Number(elements.studentLessonTotalInput.value) : 0,
+    packageTotal: existingStudent?.packageTotal || "",
+    lessonTotal: getStudentLessonTotal(id),
     note: elements.studentNoteInput.value.trim(),
     active: true,
-    createdAt: id ? state.students.find((item) => item.id === id)?.createdAt || new Date().toISOString() : new Date().toISOString(),
+    createdAt: existingStudent?.createdAt || new Date().toISOString(),
   };
 
   if (!payload.name || !payload.classId) return;
@@ -1337,6 +1324,27 @@ function updateDisplayedLessonTotal(studentId) {
   document.querySelectorAll(".sheet-total-badge").forEach((item) => {
     item.textContent = `累计课时 ${total}`;
   });
+}
+
+function autoFillLessonNumbersFrom(studentId, startDate, startNumber) {
+  if (!Number.isFinite(startNumber)) return;
+  const presentRecords = state.attendance
+    .filter((record) => record.studentId === studentId && record.status === "present" && record.date >= startDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  let current = startNumber;
+  presentRecords.forEach((record) => {
+    record.lessonNumber = String(current);
+    record.updatedAt = new Date().toISOString();
+    const input = [...document.querySelectorAll("[data-sheet-lesson]")]
+      .find((item) => item.dataset.sheetLesson === studentId && item.dataset.date === record.date);
+    if (input) input.value = String(current);
+    current += 1;
+  });
+  const highest = current - 1;
+  if (highest > getStudentLessonTotal(studentId)) {
+    setStudentLessonTotal(studentId, highest);
+    updateDisplayedLessonTotal(studentId);
+  }
 }
 
 function getStudentsForAttendanceDate() {
@@ -1927,6 +1935,7 @@ function buildClassScheduleCalendar(classItem, monthValue, mode = "card", wrap =
     const day = index + 1;
     const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const isActive = dateSet.has(date);
+    const isToday = date === todayIso();
     const presentCount = students.filter((student) => getAttendance(student.id, date)?.status === "present").length;
     const absentCount = students.filter((student) => getAttendance(student.id, date)?.status === "absent").length;
     const attr = mode === "dialog"
@@ -1935,6 +1944,7 @@ function buildClassScheduleCalendar(classItem, monthValue, mode = "card", wrap =
     return `
       <button class="calendar-day schedule-day ${isActive ? "selected" : ""}" type="button" ${attr}>
         <strong>${day}</strong>
+        ${isToday ? `<i class="today-dot" aria-label="今天"></i>` : ""}
         ${isActive ? `<span>有课</span>` : ""}
         ${(presentCount || absentCount) ? `<small>${presentCount}到 / ${absentCount}缺</small>` : ""}
       </button>
